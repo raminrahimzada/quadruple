@@ -20,6 +20,9 @@ using System.Text;
 
 namespace Quadruple
 {
+    /// <inheritdoc>
+    ///     <cref></cref>
+    /// </inheritdoc>
     /// <summary>
     /// Quad is a signed 128-bit floating point number, stored internally as a 64-bit significand (with the most significant bit as the sign bit) and
     /// a 64-bit signed exponent, with a value == significand * 2^exponent.  Quads have both a higher precision (64 vs. 53 effective significand bits)
@@ -29,7 +32,7 @@ namespace Quadruple
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Exponents >= long.MaxValue - 64 and exponents &lt;= long.MinValue + 64 are reserved
+    /// Exponents &gt;= long.MaxValue - 64 and exponents &lt;= long.MinValue + 64 are reserved
     /// and constitute overflow and underflow, respectively.  Zero, PositiveInfinity, NegativeInfinity and NaN are
     /// defined by significand bits == 0 and an exponent of long.MinValue + 0, + 1, + 2, and + 3, respectively.
     /// </para>
@@ -42,9 +45,409 @@ namespace Quadruple
     /// than the operators (like * and +) when possible, as the former are significantly faster (by as much as 50%).
     /// </para>    
     /// </remarks>
-    [System.Diagnostics.DebuggerDisplay("{ToString(),nq}")] //this attributes makes the debugger display the value without braces or quotes
+    [System.Diagnostics.DebuggerDisplay("{" + nameof(ToString) + "(),nq}")] //this attributes makes the debugger display the value without braces or quotes
     public struct Quad : IComparable<Quad>
     {
+        #region public math constants
+
+        static Quad()
+        {
+            PI = Parse("3.14159265358979323846264338327950288419716939937510");
+            PIx2 = Parse("6.28318530717958647692528676655900576839433879875021");
+            E = Parse("2.7182818284590452353602874713526624977572470936999595749");
+            PIdiv2 = Parse("1.570796326794896619231321691639751442098584699687552910487");
+            PIdiv4 = Parse("0.785398163397448309615660845819875721049292349843776455243");
+            Einv = Parse("0.3678794411714423215955237701614608674458111310317678");
+            LOG2 = Parse("0.693147180559945309417232121458176568075500134360255254120");
+            Log10Inv = Parse("0.434294481903251827651128918916605082294397005803666566114");
+            OneDiv2 = Parse("0.5");
+        }
+
+        /// <summary>
+        /// represents PI
+        /// </summary>
+        public static readonly Quad PI;
+        /// <summary>
+        /// represents 2*PI
+        /// </summary>
+        public static readonly Quad PIx2;
+
+        /// <summary>
+        /// represents E
+        /// </summary>
+        public static readonly Quad E; 
+        /// <summary>
+        /// represents PI/2
+        /// </summary>
+        public static readonly Quad PIdiv2;
+        /// <summary>
+        /// represents PI/4
+        /// </summary>
+        public static readonly Quad PIdiv4  ;
+
+        /// <summary>
+        /// represents 1.0/E
+        /// </summary>
+        public static readonly Quad Einv;
+        /// <summary>
+        /// represents Logarithm 2 from base E
+        /// </summary>
+        public static readonly Quad LOG2 ;
+        /// <summary>
+        /// log(10,E) factor
+        /// </summary>
+        public static readonly Quad Log10Inv  ;
+
+        /// <summary>
+        /// just 0.5
+        /// </summary>
+        public static readonly Quad OneDiv2  ;
+        /// <summary>
+        /// Max iterations count in Taylor series
+        /// </summary>
+        public static int MaxIteration = 100;
+        #endregion
+
+        #region new math functions
+
+        /// <summary>
+        /// Analogy of Math.Exp method
+        /// </summary>
+        /// <param name="x"></param>
+        /// <returns></returns>
+        public static Quad Exp(Quad x)
+        {
+            int count = 0;
+            while (x > One)
+            {
+                x--;
+                count++;
+            }
+            while (x < Zero)
+            {
+                x++;
+                count--;
+            }
+            int iteration = 1;
+            Quad result = One;
+            Quad fatorial = One;
+            Quad cachedResult;
+            do
+            {
+                cachedResult = result;
+                fatorial *= x / iteration++;
+                result += fatorial;
+            } while (cachedResult != result);
+            if (count != 0) result = result * PowerN(E, count);
+            return result;
+        }
+        /// <summary>
+        /// Analogy of Math.Pow method
+        /// </summary>
+        /// <param name="value"></param>
+        /// <param name="pow"></param>
+        /// <returns></returns>
+        public static Quad Power(Quad value, Quad pow)
+        {
+            return Exp(pow * Log(value));
+        }
+        /// <summary>
+        /// Power to the integer value
+        /// </summary>
+        /// <param name="value"></param>
+        /// <param name="power"></param>
+        /// <returns></returns>
+        public static Quad PowerN(Quad value, int power)
+        {
+            if (power == 0) return One;
+            if (power < 0) return PowerN(One / value, -power);
+
+            var q = power;
+            var prod = One;
+            var current = value;
+            while (q > 0)
+            {
+                if (q % 2 == 1)
+                {
+                    // detects the 1s in the binary expression of power
+                    prod = current * prod; // picks up the relevant power
+                    q--;
+                }
+                current = current * current; // value^i -> value^(2*i)
+                q = q / 2;
+            }
+
+            return prod;
+        }
+
+        /// <summary>
+        /// Analogy of Math.Log10
+        /// </summary>
+        /// <param name="x"></param>
+        /// <returns></returns>
+        public static Quad Log10(Quad x)
+        {
+            return Log(x) * Log10Inv;
+        }
+        /// <summary>
+        /// Analogy of Math.Log
+        /// </summary>
+        /// <param name="x"></param>
+        /// <returns></returns>
+        public static Quad Log(Quad x)
+        {
+            if (x <= Zero)
+            {
+                throw new ArgumentException("x must be greater than zero");
+            }
+            int count = 0;
+            while (x >= 1)
+            {
+                x *= Einv;
+                count++;
+            }
+            while (x <= Einv)
+            {
+                x *= E;
+                count--;
+            }
+            x--;
+            if (x == 0) return count;
+            Quad result = Zero;
+            int iteration = 0;
+            Quad y =One;
+            Quad cacheResult = result - One;
+            while (cacheResult != result && iteration < MaxIteration)
+            {
+                iteration++;
+                cacheResult = result;
+                y *= -x;
+                result += y / iteration;
+            }
+            return count - result;
+        }
+        /// <summary>
+        /// Analogy of Math.Cos
+        /// </summary>
+        /// <param name="x"></param>
+        /// <returns></returns>
+        public static Quad Cos(Quad x)
+        {
+            while (x > PIx2)
+            {
+                x -= PIx2;
+            }
+            while (x < -PIx2)
+            {
+                x += PIx2;
+            }
+            // now x in (-2pi,2pi)
+            if (x >= PI && x <= PIx2)
+            {
+                return -Cos(x - PI);
+            }
+            if (x >= -PIx2 && x <= -PI)
+            {
+                return -Cos(x + PI);
+            }
+            x = x * x;
+            //y=1-x/2!+x^2/4!-x^3/6!...
+            Quad xx = -x * OneDiv2;
+            Quad y = One + xx;
+            Quad cachedY = y - One;//init cache  with different value
+            for (int i = 1; cachedY != y && i < MaxIteration; i++)
+            {
+                cachedY = y;
+                Quad factor = i * (i + i + 3) + 1; //2i^2+2i+i+1=2i^2+3i+1
+                factor = -OneDiv2 / factor;
+                xx *= x * factor;
+                y += xx;
+            }
+            return y;
+        }
+        /// <summary>
+        /// Analogy of Math.Tan
+        /// </summary>
+        /// <param name="x"></param>
+        /// <returns></returns>
+        public static Quad Tan(Quad x)
+        {
+            return Sin(x) / Cos(x);
+        }
+        /// <summary>
+        /// Analogy of Math.Sin
+        /// </summary>
+        /// <param name="x"></param>
+        /// <returns></returns>
+        public static Quad Sin(Quad x)
+        {
+            var cos = Cos(x);
+            var real = Math.Sin((double)x);
+            return Sqrt(One - cos * cos) * Math.Sign(real);
+        }
+
+        public static Quad Sqrt(Quad x )
+        {
+            return Sqrt(x, Epsilon);
+        }
+        /// <summary>
+        /// Analogy of Math.Sqrt
+        /// </summary>
+        /// <param name="x"></param>
+        /// <param name="epsilon">lasts iteration while error less than this epsilon</param>
+        /// <returns></returns>
+        public static Quad Sqrt(Quad x, Quad epsilon)
+        {
+            if (x < 0) throw new OverflowException("Cannot calculate square root from a negative number");
+            //initial approximation
+            Quad current = Math.Sqrt((double)x), previous;
+            do
+            {
+                previous = current;
+                if (previous == Zero) return Zero;
+                current = (previous + x / previous) * OneDiv2;
+            } while (Abs(previous - current) > epsilon);
+            return current;
+        }
+        /// <summary>
+        /// Analogy of Math.Sinh
+        /// </summary>
+        /// <param name="x"></param>
+        /// <returns></returns>
+        public static Quad Sinh(Quad x)
+        {
+            var y = Exp(x);
+            var yy = One / y;
+            return (y - yy) * OneDiv2;
+        }
+        /// <summary>
+        /// Analogy of Math.Cosh
+        /// </summary>
+        /// <param name="x"></param>
+        /// <returns></returns>
+        public static Quad Cosh(Quad x)
+        {
+            var y = Exp(x);
+            var yy = One / y;
+            return (y + yy) * OneDiv2;
+        }
+        /// <summary>
+        /// Analogy of Math.Tanh
+        /// </summary>
+        /// <param name="x"></param>
+        /// <returns></returns>
+        public static Quad Tanh(Quad x)
+        {
+            var y = Exp(x);
+            var yy = One / y;
+            return (y - yy) / (y + yy);
+        }
+
+        /// <summary>
+        /// Analogy of Math.Asin
+        /// </summary>
+        /// <param name="x"></param>
+        /// <returns></returns>
+        public static Quad Asin(Quad x)
+        {
+            if (x > One || x < -One)
+            {
+                throw new ArgumentException("x must be in [-1,1]");
+            }
+            //known values
+            if (x == Zero) return 0;
+            if (x == One) return PIdiv2;
+            //asin function is odd function
+            if (x < Zero) return -Asin(-x);
+
+            //my optimize trick here
+
+            // used a math formula to speed up :
+            // asin(x)=0.5*(pi/2-asin(1-2*x*x)) 
+            // if x>=0 is true
+
+            var newX = 1 - 2 * x * x;
+
+            //for calculating new value near to zero than current
+            //because we gain more speed with values near to zero
+            if (Abs(x) > Abs(newX))
+            {
+                var t = Asin(newX);
+                return OneDiv2 * (PIdiv2 - t);
+            }
+            Quad y = Zero;
+            Quad result = x;
+            Quad cachedResult;
+            int i = 1;
+            y += result;
+            var xx = x * x;
+            do
+            {
+                cachedResult = result;
+                result *= xx * (One - One / (i + i));
+                y += result / (2 * i + 1);
+                i++;
+            } while (cachedResult != result);
+            return y;
+        }
+        /// <summary>
+        /// Analogy of Math.Atan
+        /// </summary>
+        /// <param name="x"></param>
+        /// <returns></returns>
+        public static Quad ATan(Quad x)
+        {
+            if (x == Zero) return Zero;
+            if (x == One) return PIdiv4;
+            return Asin(x / Sqrt(1 + x * x));
+        }
+        /// <summary>
+        /// Analogy of Math.Acos
+        /// </summary>
+        /// <param name="x"></param>
+        /// <returns></returns>
+        public static Quad Acos(Quad x)
+        {
+            if (x == Zero) return PIdiv2;
+            if (x == One) return Zero;
+            if (x < Zero) return PI - Acos(-x);
+            return PIdiv2 - Asin(x);
+        }
+
+        /// <summary>
+        /// Analogy of Math.Atan2
+        /// for more see this
+        /// <seealso cref="http://i.imgur.com/TRLjs8R.png"/>
+        /// </summary>
+        /// <param name="y"></param>
+        /// <param name="x"></param>
+        /// <returns></returns>
+        public static Quad Atan2(Quad y, Quad x)
+        {
+            if (x > Zero)
+            {
+                return ATan(y / x);
+            }
+            if (x < Zero && y >= Zero)
+            {
+                return ATan(y / x) + PI;
+            }
+            if (x < Zero && y < Zero)
+            {
+                return ATan(y / x) - PI;
+            }
+            if (x == Zero && y > Zero)
+            {
+                return PIdiv2;
+            }
+            if (x == Zero && y < Zero)
+            {
+                return -PIdiv2;
+            }
+            throw new ArgumentException("invalid atan2 arguments");
+        }
+        #endregion
+
         #region Public constants
         /// <summary>
         /// 0.  Equivalent to (Quad)0.
@@ -59,32 +462,32 @@ namespace Quadruple
         /// <summary>
         /// Positive infinity.  Equivalent to (Quad)double.PositiveInfinity.
         /// </summary>
-        public static readonly Quad PositiveInfinity = new Quad(0UL, infinityExponent);
+        public static readonly Quad PositiveInfinity = new Quad(0UL, InfinityExponent);
 
         /// <summary>
         /// Negative infinity.  Equivalent to (Quad)double.NegativeInfinity.
         /// </summary>
-        public static readonly Quad NegativeInfinity = new Quad(0UL, negativeInfinityExponent);
+        public static readonly Quad NegativeInfinity = new Quad(0UL, NegativeInfinityExponent);
 
         /// <summary>
         /// The Not-A-Number value.  Equivalent to (Quad)double.NaN.
         /// </summary>
-        public static readonly Quad NaN = new Quad(0UL, notANumberExponent);
+        public static readonly Quad NaN = new Quad(0UL, NotANumberExponent);
 
         /// <summary>
         /// The maximum value representable by a Quad, (2 - 1/(2^63)) * 2^(long.MaxValue-65)
         /// </summary>
-        public static readonly Quad MaxValue = new Quad(~highestBit, exponentUpperBound);
+        public static readonly Quad MaxValue = new Quad(~HighestBit, ExponentUpperBound);
 
         /// <summary>
         /// The minimum value representable by a Quad, -(2 - 1/(2^63)) * 2^(long.MaxValue-65)
         /// </summary>
-        public static readonly Quad MinValue = new Quad(ulong.MaxValue, exponentUpperBound);
+        public static readonly Quad MinValue = new Quad(ulong.MaxValue, ExponentUpperBound);
 
         /// <summary>
         /// The smallest positive value greater than zero representable by a Quad, 2^(long.MinValue+65)
         /// </summary>
-        public static readonly Quad Epsilon = new Quad(0UL, exponentLowerBound);
+        public static readonly Quad Epsilon = new Quad(0UL, ExponentLowerBound);
         #endregion
 
         #region Public fields
@@ -110,12 +513,12 @@ namespace Quadruple
         /// corresponding to the quad's sign (1 for positive, 0 for negative), and the rest of the bits correspond to the fractional
         /// part of the significand value (immediately after the binary point).  A "1" before the binary point is always implied.
         /// </summary>
-        /// <param name="significand"></param>
+        /// <param name="significandBits"></param>
         /// <param name="exponent"></param>
         public Quad(ulong significandBits, long exponent)
         {
-            this.SignificandBits = significandBits;
-            this.Exponent = exponent;
+            SignificandBits = significandBits;
+            Exponent = exponent;
         }
 
         /// <summary>
@@ -136,20 +539,20 @@ namespace Quadruple
             {
                 if (significand == long.MinValue) //corner case
                 {
-                    SignificandBits = highestBit;
+                    SignificandBits = HighestBit;
                     Exponent = 0;
                     return;
                 }
 
                 significand = -significand;
-                SignificandBits = highestBit;
+                SignificandBits = HighestBit;
             }
             else
                 SignificandBits = 0;
 
-            int shift = nlz((ulong)significand); //we must normalize the value such that the most significant bit is 1
-            this.SignificandBits |= ~highestBit & (((ulong)significand) << shift); //mask out the highest bit--it's implicit
-            this.Exponent = exponent - shift;
+            int shift = Nlz((ulong)significand); //we must normalize the value such that the most significant bit is 1
+            SignificandBits |= ~HighestBit & (((ulong)significand) << shift); //mask out the highest bit--it's implicit
+            Exponent = exponent - shift;
         }
         #endregion
 
@@ -158,7 +561,7 @@ namespace Quadruple
         //first index = first argument to the operation; second index = second argument
         //One's are used as placeholders when dividing a finite by a finite; these will not be used as the actual result of division, of course.
         //arguments are in the order: 0, positive infinity, negative infinity, NaN, positive finite, negative finite
-        private static readonly Quad[,] specialDivisionTable = new Quad[6, 6]{
+        private static readonly Quad[,] SpecialDivisionTable = new Quad[,]{
             { NaN, Zero, Zero, NaN, Zero, Zero }, // 0 divided by something
             { PositiveInfinity, NaN, NaN, NaN, PositiveInfinity, NegativeInfinity }, // +inf divided by something
             { NegativeInfinity, NaN, NaN, NaN, NegativeInfinity, PositiveInfinity }, // -inf divided by something
@@ -167,7 +570,7 @@ namespace Quadruple
             { NegativeInfinity, Zero, Zero, NaN, One, One } //negative finite divided by something
         };
 
-        private static readonly Quad[,] specialMultiplicationTable = new Quad[6, 6]{
+        private static readonly Quad[,] SpecialMultiplicationTable = new Quad[,]{
             { Zero, NaN, NaN, NaN, Zero, Zero }, // 0 * something
             { NaN, PositiveInfinity, NegativeInfinity, NaN, PositiveInfinity, NegativeInfinity }, // +inf * something
             { NaN, NegativeInfinity, PositiveInfinity, NaN, NegativeInfinity, PositiveInfinity }, // -inf * something
@@ -176,7 +579,7 @@ namespace Quadruple
             { Zero, NegativeInfinity, PositiveInfinity, NaN, One, One } //negative finite * something
         };
 
-        private static readonly bool[,] specialGreaterThanTable = new bool[6, 6]{
+        private static readonly bool[,] SpecialGreaterThanTable = new bool[,]{
             { false, false, true, false, false, true }, // 0 > something
             { true, false, true, false, true, true }, // +inf > something
             { false, false, false, false, false, false }, // -inf > something
@@ -185,7 +588,7 @@ namespace Quadruple
             { false, false, true, false, false, false } //negative finite > something
         };
 
-        private static readonly bool[,] specialGreaterEqualThanTable = new bool[6, 6]{
+        private static readonly bool[,] SpecialGreaterEqualThanTable = new bool[,]{
             { true, false, true, false, false, true }, // 0 >= something
             { true, true, true, false, true, true }, // +inf >= something
             { false, false, true, false, false, false }, // -inf >= something
@@ -194,7 +597,7 @@ namespace Quadruple
             { false, false, true, false, false, false } //negative finite >= something
         };
 
-        private static readonly bool[,] specialLessThanTable = new bool[6, 6]{
+        private static readonly bool[,] SpecialLessThanTable = new bool[,]{
             { false, true, false, false, true, false }, // 0 < something
             { false, false, false, false, false, false }, // +inf < something
             { true, true, false, false, true, true }, // -inf < something
@@ -203,7 +606,7 @@ namespace Quadruple
             { true, true, false, false, true, false } //negative finite < something
         };
 
-        private static readonly bool[,] specialLessEqualThanTable = new bool[6, 6]{
+        private static readonly bool[,] SpecialLessEqualThanTable = new bool[,]{
             { true, true, false, false, true, false }, // 0 < something
             { false, true, false, false, false, false }, // +inf < something
             { true, true, true, false, true, true }, // -inf < something
@@ -212,7 +615,7 @@ namespace Quadruple
             { true, true, false, false, true, false } //negative finite < something
         };
 
-        private static readonly Quad[,] specialSubtractionTable = new Quad[6, 6]{
+        private static readonly Quad[,] SpecialSubtractionTable = new Quad[,]{
             {Zero, NegativeInfinity, PositiveInfinity, NaN, One, One}, //0 - something
             {PositiveInfinity, NaN, PositiveInfinity, NaN, PositiveInfinity, PositiveInfinity}, //+Infinity - something
             {NegativeInfinity, NegativeInfinity, NaN, NaN,NegativeInfinity,NegativeInfinity}, //-Infinity - something
@@ -221,7 +624,7 @@ namespace Quadruple
             { One, NegativeInfinity, PositiveInfinity, NaN, One, One } //-finite - something
         };
 
-        private static readonly Quad[,] specialAdditionTable = new Quad[6, 6]{
+        private static readonly Quad[,] SpecialAdditionTable = new Quad[,]{
             {Zero, PositiveInfinity, NegativeInfinity, NaN, One, One}, //0 + something
             {PositiveInfinity, PositiveInfinity, NaN, NaN, PositiveInfinity, PositiveInfinity}, //+Infinity + something
             {NegativeInfinity, NaN, NegativeInfinity, NaN,NegativeInfinity,NegativeInfinity}, //-Infinity + something
@@ -230,43 +633,43 @@ namespace Quadruple
             { One, PositiveInfinity, NegativeInfinity, NaN, One, One } //-finite + something
         };
 
-        private static readonly double[] specialDoubleLogTable = new double[] { double.NegativeInfinity, double.PositiveInfinity, double.NaN, double.NaN };
+        private static readonly double[] SpecialDoubleLogTable = new double[] { double.NegativeInfinity, double.PositiveInfinity, double.NaN, double.NaN };
 
-        private static readonly string[] specialStringTable = new string[] { "0", "Infinity", "-Infinity", "NaN" };
+        private static readonly string[] SpecialStringTable = new string[] { "0", "Infinity", "-Infinity", "NaN" };
         #endregion
 
-        private const long zeroExponent = long.MinValue;
-        private const long infinityExponent = long.MinValue + 1;
-        private const long negativeInfinityExponent = long.MinValue + 2;
-        private const long notANumberExponent = long.MinValue + 3;
+        private const long ZeroExponent = long.MinValue;
+        private const long InfinityExponent = long.MinValue + 1;
+        private const long NegativeInfinityExponent = long.MinValue + 2;
+        private const long NotANumberExponent = long.MinValue + 3;
 
-        private const long exponentUpperBound = long.MaxValue - 65; //no exponent should be higher than this
-        private const long exponentLowerBound = long.MinValue + 65; //no exponent should be lower than this
+        private const long ExponentUpperBound = long.MaxValue - 65; //no exponent should be higher than this
+        private const long ExponentLowerBound = long.MinValue + 65; //no exponent should be lower than this
 
-        private const double base2to10Multiplier = 0.30102999566398119521373889472449; //Math.Log(2) / Math.Log(10);
-        private const ulong highestBit = 1UL << 63;
-        private const ulong secondHighestBit = 1UL << 62;
-        private const ulong lowWordMask = 0xffffffff; //lower 32 bits
-        private const ulong highWordMask = 0xffffffff00000000; //upper 32 bits
+        private const double Base2To10Multiplier = 0.30102999566398119521373889472449; //Math.Log(2) / Math.Log(10);
+        private const ulong HighestBit = 1UL << 63;
+        private const ulong SecondHighestBit = 1UL << 62;
+        private const ulong LowWordMask = 0xffffffff; //lower 32 bits
+        //private const ulong HighWordMask = 0xffffffff00000000; //upper 32 bits
 
-        private const ulong b = 4294967296; // Number base (32 bits).
+        private const ulong B = 4294967296; // Number base (32 bits).
 
-        private static readonly Quad e19 = (Quad)10000000000000000000UL;
-        private static readonly Quad e10 = (Quad)10000000000UL;
-        private static readonly Quad e5 = (Quad)100000UL;
-        private static readonly Quad e3 = (Quad)1000UL;
-        private static readonly Quad e1 = (Quad)10UL;
+        private static readonly Quad E19 = (Quad)10000000000000000000UL;
+        private static readonly Quad E10 = (Quad)10000000000UL;
+        private static readonly Quad E5 = (Quad)100000UL;
+        private static readonly Quad E3 = (Quad)1000UL;
+        private static readonly Quad E1 = (Quad)10UL;
 
-        private static readonly Quad en19 = One / e19;
-        private static readonly Quad en10 = One / e10;
-        private static readonly Quad en5 = One / e5;
-        private static readonly Quad en3 = One / e3;
-        private static readonly Quad en1 = One / e1;
+        //private static readonly Quad En19 = One / E19;
+        //private static readonly Quad En10 = One / E10;
+        //private static readonly Quad En5 = One / E5;
+        //private static readonly Quad En3 = One / E3;
+        //private static readonly Quad En1 = One / E1;
 
-        private static readonly Quad en18 = One / (Quad)1000000000000000000UL;
-        private static readonly Quad en9 = One / (Quad)1000000000UL;
-        private static readonly Quad en4 = One / (Quad)10000UL;
-        private static readonly Quad en2 = One / (Quad)100UL;
+        private static readonly Quad En18 = One / (Quad)1000000000000000000UL;
+        private static readonly Quad En9 = One / (Quad)1000000000UL;
+        private static readonly Quad En4 = One / (Quad)10000UL;
+        private static readonly Quad En2 = One / (Quad)100UL;
 
 
         /// <summary>
@@ -275,7 +678,7 @@ namespace Quadruple
         /// </summary>
         /// <param name="x"></param>
         /// <returns></returns>
-        private static int nlz(ulong x)
+        private static int Nlz(ulong x)
         {
             //Future work: might be faster with a huge, explicit nested if tree, or use of an 256-element per-byte array.            
 
@@ -316,18 +719,11 @@ namespace Quadruple
             {
                 if (mantissa == 0)
                 {
-                    if (bits >= highestBit) //sign bit set?
-                        multiplier = NegativeInfinity;
-                    else
-                        multiplier = PositiveInfinity;
-
+                    multiplier = bits >= HighestBit ? NegativeInfinity : PositiveInfinity;
                     goto Parsed;
                 }
-                else
-                {
-                    multiplier = NaN;
-                    goto Parsed;
-                }
+                multiplier = NaN;
+                goto Parsed;
             }
 
             // Subnormal numbers; exponent is effectively one higher,
@@ -341,7 +737,7 @@ namespace Quadruple
                 }
                 exponent++;
 
-                int firstSetPosition = nlz(mantissa);
+                int firstSetPosition = Nlz(mantissa);
                 mantissa <<= firstSetPosition;
                 exponent -= firstSetPosition;
             }
@@ -353,129 +749,129 @@ namespace Quadruple
 
             exponent -= 1075;
 
-            multiplier.SignificandBits = (highestBit & bits) | mantissa;
+            multiplier.SignificandBits = (HighestBit & bits) | mantissa;
             multiplier.Exponent = exponent;
 
             Parsed:
             #endregion
 
             #region Multiply
-            if (this.Exponent <= notANumberExponent) //zero/infinity/NaN * something            
+            if (Exponent <= NotANumberExponent) //zero/infinity/NaN * something            
             {
-                Quad result = specialMultiplicationTable[(int)(this.Exponent - zeroExponent), multiplier.Exponent > notANumberExponent ? (int)(4 + (multiplier.SignificandBits >> 63)) : (int)(multiplier.Exponent - zeroExponent)];
-                this.SignificandBits = result.SignificandBits;
-                this.Exponent = result.Exponent;
+                Quad result = SpecialMultiplicationTable[(int)(Exponent - ZeroExponent), multiplier.Exponent > NotANumberExponent ? (int)(4 + (multiplier.SignificandBits >> 63)) : (int)(multiplier.Exponent - ZeroExponent)];
+                SignificandBits = result.SignificandBits;
+                Exponent = result.Exponent;
                 return;
             }
-            else if (multiplier.Exponent <= notANumberExponent) //finite * zero/infinity/NaN            
+            if (multiplier.Exponent <= NotANumberExponent) //finite * zero/infinity/NaN            
             {
-                Quad result = specialMultiplicationTable[(int)(4 + (this.SignificandBits >> 63)), (int)(multiplier.Exponent - zeroExponent)];
-                this.SignificandBits = result.SignificandBits;
-                this.Exponent = result.Exponent;
+                Quad result = SpecialMultiplicationTable[(int)(4 + (SignificandBits >> 63)), (int)(multiplier.Exponent - ZeroExponent)];
+                SignificandBits = result.SignificandBits;
+                Exponent = result.Exponent;
                 return;
             }
 
-            ulong high1 = (this.SignificandBits | highestBit) >> 32; //de-implicitize the 1
-            ulong high2 = (multiplier.SignificandBits | highestBit) >> 32;
+            ulong high1 = (SignificandBits | HighestBit) >> 32; //de-implicitize the 1
+            ulong high2 = (multiplier.SignificandBits | HighestBit) >> 32;
 
             //because the MSB of both significands is 1, the MSB of the result will also be 1, and the product of low bits on both significands is dropped (and thus we can skip its calculation)
-            ulong significandBits = high1 * high2 + (((this.SignificandBits & lowWordMask) * high2) >> 32) + ((high1 * (multiplier.SignificandBits & lowWordMask)) >> 32);
+            ulong significandBits = high1 * high2 + (((SignificandBits & LowWordMask) * high2) >> 32) + ((high1 * (multiplier.SignificandBits & LowWordMask)) >> 32);
 
             long qd2Exponent;
-            long qd1Exponent = this.Exponent;
+            long qd1Exponent = Exponent;
             if (significandBits < (1UL << 63))
             {
-                this.SignificandBits = ((this.SignificandBits ^ multiplier.SignificandBits) & highestBit) | ((significandBits << 1) & ~highestBit);
+                SignificandBits = ((SignificandBits ^ multiplier.SignificandBits) & HighestBit) | ((significandBits << 1) & ~HighestBit);
                 qd2Exponent = multiplier.Exponent - 1 + 64;
-                this.Exponent = this.Exponent + qd2Exponent;
+                Exponent = Exponent + qd2Exponent;
             }
             else
             {
-                this.SignificandBits = ((this.SignificandBits ^ multiplier.SignificandBits) & highestBit) | (significandBits & ~highestBit);
+                SignificandBits = ((SignificandBits ^ multiplier.SignificandBits) & HighestBit) | (significandBits & ~HighestBit);
                 qd2Exponent = multiplier.Exponent + 64;
-                this.Exponent = this.Exponent + qd2Exponent;
+                Exponent = Exponent + qd2Exponent;
             }
 
-            if (qd2Exponent < 0 && this.Exponent > qd1Exponent) //did the exponent get larger after adding something negative?
+            if (qd2Exponent < 0 && Exponent > qd1Exponent) //did the exponent get larger after adding something negative?
             {
-                this.SignificandBits = 0;
-                this.Exponent = zeroExponent;
+                SignificandBits = 0;
+                Exponent = ZeroExponent;
             }
-            else if (qd2Exponent > 0 && this.Exponent < qd1Exponent) //did the exponent get smaller when it should have gotten larger?
+            else if (qd2Exponent > 0 && Exponent < qd1Exponent) //did the exponent get smaller when it should have gotten larger?
             {
-                this.SignificandBits = 0;
-                this.Exponent = this.SignificandBits >= highestBit ? negativeInfinityExponent : infinityExponent; //overflow
+                SignificandBits = 0;
+                Exponent = SignificandBits >= HighestBit ? NegativeInfinityExponent : InfinityExponent; //overflow
             }
-            else if (this.Exponent < exponentLowerBound) //check for underflow
+            else if (Exponent < ExponentLowerBound) //check for underflow
             {
-                this.SignificandBits = 0;
-                this.Exponent = zeroExponent;
+                SignificandBits = 0;
+                Exponent = ZeroExponent;
             }
-            else if (this.Exponent > exponentUpperBound) //overflow
+            else if (Exponent > ExponentUpperBound) //overflow
             {
-                this.SignificandBits = 0;
-                this.Exponent = this.SignificandBits >= highestBit ? negativeInfinityExponent : infinityExponent; //overflow
+                SignificandBits = 0;
+                Exponent = SignificandBits >= HighestBit ? NegativeInfinityExponent : InfinityExponent; //overflow
             }
             #endregion
         }
 
         public void Multiply(Quad multiplier)
         {
-            if (this.Exponent <= notANumberExponent) //zero/infinity/NaN * something            
+            if (Exponent <= NotANumberExponent) //zero/infinity/NaN * something            
             {
-                Quad result = specialMultiplicationTable[(int)(this.Exponent - zeroExponent), multiplier.Exponent > notANumberExponent ? (int)(4 + (multiplier.SignificandBits >> 63)) : (int)(multiplier.Exponent - zeroExponent)];
-                this.SignificandBits = result.SignificandBits;
-                this.Exponent = result.Exponent;
+                Quad result = SpecialMultiplicationTable[(int)(Exponent - ZeroExponent), multiplier.Exponent > NotANumberExponent ? (int)(4 + (multiplier.SignificandBits >> 63)) : (int)(multiplier.Exponent - ZeroExponent)];
+                SignificandBits = result.SignificandBits;
+                Exponent = result.Exponent;
                 return;
             }
-            else if (multiplier.Exponent <= notANumberExponent) //finite * zero/infinity/NaN            
+            if (multiplier.Exponent <= NotANumberExponent) //finite * zero/infinity/NaN            
             {
-                Quad result = specialMultiplicationTable[(int)(4 + (this.SignificandBits >> 63)), (int)(multiplier.Exponent - zeroExponent)];
-                this.SignificandBits = result.SignificandBits;
-                this.Exponent = result.Exponent;
+                Quad result = SpecialMultiplicationTable[(int)(4 + (SignificandBits >> 63)), (int)(multiplier.Exponent - ZeroExponent)];
+                SignificandBits = result.SignificandBits;
+                Exponent = result.Exponent;
                 return;
             }
 
-            ulong high1 = (this.SignificandBits | highestBit) >> 32; //de-implicitize the 1
-            ulong high2 = (multiplier.SignificandBits | highestBit) >> 32;
+            ulong high1 = (SignificandBits | HighestBit) >> 32; //de-implicitize the 1
+            ulong high2 = (multiplier.SignificandBits | HighestBit) >> 32;
 
             //because the MSB of both significands is 1, the MSB of the result will also be 1, and the product of low bits on both significands is dropped (and thus we can skip its calculation)
-            ulong significandBits = high1 * high2 + (((this.SignificandBits & lowWordMask) * high2) >> 32) + ((high1 * (multiplier.SignificandBits & lowWordMask)) >> 32);
+            ulong significandBits = high1 * high2 + (((SignificandBits & LowWordMask) * high2) >> 32) + ((high1 * (multiplier.SignificandBits & LowWordMask)) >> 32);
 
             long qd2Exponent;
-            long qd1Exponent = this.Exponent;
+            long qd1Exponent = Exponent;
             if (significandBits < (1UL << 63))
             {
-                this.SignificandBits = ((this.SignificandBits ^ multiplier.SignificandBits) & highestBit) | ((significandBits << 1) & ~highestBit);
+                SignificandBits = ((SignificandBits ^ multiplier.SignificandBits) & HighestBit) | ((significandBits << 1) & ~HighestBit);
                 qd2Exponent = multiplier.Exponent - 1 + 64;
             }
             else
             {
-                this.SignificandBits = ((this.SignificandBits ^ multiplier.SignificandBits) & highestBit) | (significandBits & ~highestBit);
+                SignificandBits = ((SignificandBits ^ multiplier.SignificandBits) & HighestBit) | (significandBits & ~HighestBit);
                 qd2Exponent = multiplier.Exponent + 64;
             }
 
-            this.Exponent = this.Exponent + qd2Exponent;
+            Exponent = Exponent + qd2Exponent;
 
-            if (qd2Exponent < 0 && this.Exponent > qd1Exponent) //did the exponent get larger after adding something negative?
+            if (qd2Exponent < 0 && Exponent > qd1Exponent) //did the exponent get larger after adding something negative?
             {
-                this.SignificandBits = 0;
-                this.Exponent = zeroExponent;
+                SignificandBits = 0;
+                Exponent = ZeroExponent;
             }
-            else if (qd2Exponent > 0 && this.Exponent < qd1Exponent) //did the exponent get smaller when it should have gotten larger?
+            else if (qd2Exponent > 0 && Exponent < qd1Exponent) //did the exponent get smaller when it should have gotten larger?
             {
-                this.SignificandBits = 0;
-                this.Exponent = this.SignificandBits >= highestBit ? negativeInfinityExponent : infinityExponent; //overflow
+                SignificandBits = 0;
+                Exponent = SignificandBits >= HighestBit ? NegativeInfinityExponent : InfinityExponent; //overflow
             }
-            else if (this.Exponent < exponentLowerBound) //check for underflow
+            else if (Exponent < ExponentLowerBound) //check for underflow
             {
-                this.SignificandBits = 0;
-                this.Exponent = zeroExponent;
+                SignificandBits = 0;
+                Exponent = ZeroExponent;
             }
-            else if (this.Exponent > exponentUpperBound) //overflow
+            else if (Exponent > ExponentUpperBound) //overflow
             {
-                this.SignificandBits = 0;
-                this.Exponent = this.SignificandBits >= highestBit ? negativeInfinityExponent : infinityExponent; //overflow
+                SignificandBits = 0;
+                Exponent = SignificandBits >= HighestBit ? NegativeInfinityExponent : InfinityExponent; //overflow
             }
 
             #region Multiply with reduced branching (slightly faster?)
@@ -519,40 +915,39 @@ namespace Quadruple
         /// <param name="multiplier"></param>
         public void MultiplyUnchecked(Quad multiplier)
         {
-            if (this.Exponent <= notANumberExponent) //zero/infinity/NaN * something            
+            if (Exponent <= NotANumberExponent) //zero/infinity/NaN * something            
             {
-                Quad result = specialMultiplicationTable[(int)(this.Exponent - zeroExponent), multiplier.Exponent > notANumberExponent ? (int)(4 + (multiplier.SignificandBits >> 63)) : (int)(multiplier.Exponent - zeroExponent)];
-                this.SignificandBits = result.SignificandBits;
-                this.Exponent = result.Exponent;
+                Quad result = SpecialMultiplicationTable[(int)(Exponent - ZeroExponent), multiplier.Exponent > NotANumberExponent ? (int)(4 + (multiplier.SignificandBits >> 63)) : (int)(multiplier.Exponent - ZeroExponent)];
+                SignificandBits = result.SignificandBits;
+                Exponent = result.Exponent;
                 return;
             }
-            else if (multiplier.Exponent <= notANumberExponent) //finite * zero/infinity/NaN            
+            if (multiplier.Exponent <= NotANumberExponent) //finite * zero/infinity/NaN            
             {
-                Quad result = specialMultiplicationTable[(int)(4 + (this.SignificandBits >> 63)), (int)(multiplier.Exponent - zeroExponent)];
-                this.SignificandBits = result.SignificandBits;
-                this.Exponent = result.Exponent;
+                Quad result = SpecialMultiplicationTable[(int)(4 + (SignificandBits >> 63)), (int)(multiplier.Exponent - ZeroExponent)];
+                SignificandBits = result.SignificandBits;
+                Exponent = result.Exponent;
                 return;
             }
 
-            ulong high1 = (this.SignificandBits | highestBit) >> 32; //de-implicitize the 1
-            ulong high2 = (multiplier.SignificandBits | highestBit) >> 32;
+            ulong high1 = (SignificandBits | HighestBit) >> 32; //de-implicitize the 1
+            ulong high2 = (multiplier.SignificandBits | HighestBit) >> 32;
 
             //because the MSB of both significands is 1, the MSB of the result will also be 1, and the product of low bits on both significands is dropped (and thus we can skip its calculation)
-            ulong significandBits = high1 * high2 + (((this.SignificandBits & lowWordMask) * high2) >> 32) + ((high1 * (multiplier.SignificandBits & lowWordMask)) >> 32);
+            ulong significandBits = high1 * high2 + (((SignificandBits & LowWordMask) * high2) >> 32) + ((high1 * (multiplier.SignificandBits & LowWordMask)) >> 32);
 
             long qd2Exponent;
-            long qd1Exponent = this.Exponent;
             if (significandBits < (1UL << 63))
             {
-                this.SignificandBits = ((this.SignificandBits ^ multiplier.SignificandBits) & highestBit) | ((significandBits << 1) & ~highestBit);
+                SignificandBits = ((SignificandBits ^ multiplier.SignificandBits) & HighestBit) | ((significandBits << 1) & ~HighestBit);
                 qd2Exponent = multiplier.Exponent - 1 + 64;
-                this.Exponent = this.Exponent + qd2Exponent;
+                Exponent = Exponent + qd2Exponent;
             }
             else
             {
-                this.SignificandBits = ((this.SignificandBits ^ multiplier.SignificandBits) & highestBit) | (significandBits & ~highestBit);
+                SignificandBits = ((SignificandBits ^ multiplier.SignificandBits) & HighestBit) | (significandBits & ~HighestBit);
                 qd2Exponent = multiplier.Exponent + 64;
-                this.Exponent = this.Exponent + qd2Exponent;
+                Exponent = Exponent + qd2Exponent;
             }
         }
 
@@ -578,18 +973,11 @@ namespace Quadruple
                 {
                     if (mantissa == 0)
                     {
-                        if (bits >= highestBit) //sign bit set?
-                            value = NegativeInfinity;
-                        else
-                            value = PositiveInfinity;
-
+                        value = bits >= HighestBit ? NegativeInfinity : PositiveInfinity;
                         goto Parsed;
                     }
-                    else
-                    {
-                        value = NaN;
-                        goto Parsed;
-                    }
+                    value = NaN;
+                    goto Parsed;
                 }
 
                 // Subnormal numbers; exponent is effectively one higher,
@@ -603,7 +991,7 @@ namespace Quadruple
                     }
                     exponent++;
 
-                    int firstSetPosition = nlz(mantissa);
+                    int firstSetPosition = Nlz(mantissa);
                     mantissa <<= firstSetPosition;
                     exponent -= firstSetPosition;
                 }
@@ -615,94 +1003,91 @@ namespace Quadruple
 
                 exponent -= 1075;
 
-                value.SignificandBits = (highestBit & bits) | mantissa;
+                value.SignificandBits = (HighestBit & bits) | mantissa;
                 value.Exponent = exponent;
             }
             Parsed:
             #endregion
             #region Addition
             {
-                if (this.Exponent <= notANumberExponent) //zero or infinity or NaN + something
+                if (Exponent <= NotANumberExponent) //zero or infinity or NaN + something
                 {
-                    if (this.Exponent == zeroExponent)
+                    if (Exponent == ZeroExponent)
                     {
-                        this.SignificandBits = value.SignificandBits;
-                        this.Exponent = value.Exponent;
+                        SignificandBits = value.SignificandBits;
+                        Exponent = value.Exponent;
                     }
                     else
                     {
-                        Quad result = specialAdditionTable[(int)(this.Exponent - zeroExponent), value.Exponent > notANumberExponent ? (int)(4 + (value.SignificandBits >> 63)) : (int)(value.Exponent - zeroExponent)];
-                        this.SignificandBits = result.SignificandBits;
-                        this.Exponent = result.Exponent;
+                        Quad result = SpecialAdditionTable[(int)(Exponent - ZeroExponent), value.Exponent > NotANumberExponent ? (int)(4 + (value.SignificandBits >> 63)) : (int)(value.Exponent - ZeroExponent)];
+                        SignificandBits = result.SignificandBits;
+                        Exponent = result.Exponent;
                     }
 
                     return;
                 }
-                else if (value.Exponent <= notANumberExponent) //finite + (infinity or NaN)
+                if (value.Exponent <= NotANumberExponent) //finite + (infinity or NaN)
                 {
-                    if (value.Exponent != zeroExponent)
+                    if (value.Exponent != ZeroExponent)
                     {
-                        Quad result = specialAdditionTable[(int)(4 + (this.SignificandBits >> 63)), (int)(value.Exponent - zeroExponent)];
-                        this.SignificandBits = result.SignificandBits;
-                        this.Exponent = result.Exponent;
+                        Quad result = SpecialAdditionTable[(int)(4 + (SignificandBits >> 63)), (int)(value.Exponent - ZeroExponent)];
+                        SignificandBits = result.SignificandBits;
+                        Exponent = result.Exponent;
                     }
                     return; //if value == 0, no need to change
                 }
 
-                if ((this.SignificandBits ^ value.SignificandBits) >= highestBit) //this and value have different signs--use subtraction instead
+                if ((SignificandBits ^ value.SignificandBits) >= HighestBit) //this and value have different signs--use subtraction instead
                 {
-                    Subtract(new Quad(value.SignificandBits ^ highestBit, value.Exponent));
+                    Subtract(new Quad(value.SignificandBits ^ HighestBit, value.Exponent));
                     return;
                 }
 
-                if (this.Exponent > value.Exponent)
+                if (Exponent > value.Exponent)
                 {
-                    if (this.Exponent >= value.Exponent + 64)
+                    if (Exponent >= value.Exponent + 64)
                         return; //value too small to make a difference
+                    ulong bits = (SignificandBits | HighestBit) + ((value.SignificandBits | HighestBit) >> (int)(Exponent - value.Exponent));
+
+                    if (bits < HighestBit) //this can only happen in an overflow  
+                    {
+                        SignificandBits = (SignificandBits & HighestBit) | (bits >> 1);
+                        Exponent = Exponent + 1;
+                    }
                     else
                     {
-                        ulong bits = (this.SignificandBits | highestBit) + ((value.SignificandBits | highestBit) >> (int)(this.Exponent - value.Exponent));
-
-                        if (bits < highestBit) //this can only happen in an overflow  
-                        {
-                            this.SignificandBits = (this.SignificandBits & highestBit) | (bits >> 1);
-                            this.Exponent = this.Exponent + 1;
-                        }
-                        else
-                        {
-                            this.SignificandBits = (this.SignificandBits & highestBit) | (bits & ~highestBit);
-                            //this.Exponent = this.Exponent; //exponent stays the same
-                        }
+                        SignificandBits = (SignificandBits & HighestBit) | (bits & ~HighestBit);
+                        //this.Exponent = this.Exponent; //exponent stays the same
                     }
                 }
-                else if (this.Exponent < value.Exponent)
+                else if (Exponent < value.Exponent)
                 {
-                    if (value.Exponent >= this.Exponent + 64)
+                    if (value.Exponent >= Exponent + 64)
                     {
-                        this.SignificandBits = value.SignificandBits; //too small to matter
-                        this.Exponent = value.Exponent;
+                        SignificandBits = value.SignificandBits; //too small to matter
+                        Exponent = value.Exponent;
                     }
                     else
                     {
-                        ulong bits = (value.SignificandBits | highestBit) + ((this.SignificandBits | highestBit) >> (int)(value.Exponent - this.Exponent));
+                        ulong bits = (value.SignificandBits | HighestBit) + ((SignificandBits | HighestBit) >> (int)(value.Exponent - Exponent));
 
-                        if (bits < highestBit) //this can only happen in an overflow                    
+                        if (bits < HighestBit) //this can only happen in an overflow                    
                         {
-                            this.SignificandBits = (value.SignificandBits & highestBit) | (bits >> 1);
-                            this.Exponent = value.Exponent + 1;
+                            SignificandBits = (value.SignificandBits & HighestBit) | (bits >> 1);
+                            Exponent = value.Exponent + 1;
                         }
                         else
                         {
-                            this.SignificandBits = (value.SignificandBits & highestBit) | (bits & ~highestBit);
-                            this.Exponent = value.Exponent;
+                            SignificandBits = (value.SignificandBits & HighestBit) | (bits & ~HighestBit);
+                            Exponent = value.Exponent;
                         }
                     }
                 }
                 else //expDiff == 0
                 {
                     //the MSB must have the same sign, so the MSB will become 0, and logical overflow is guaranteed in this situation (so we can shift right and increment the exponent).
-                    this.SignificandBits = ((this.SignificandBits + value.SignificandBits) >> 1) | (this.SignificandBits & highestBit);
-                    this.Exponent = this.Exponent + 1;
+                    SignificandBits = ((SignificandBits + value.SignificandBits) >> 1) | (SignificandBits & HighestBit);
+                    Exponent = Exponent + 1;
                 }
             }
             #endregion
@@ -712,87 +1097,84 @@ namespace Quadruple
         {
             #region Addition
 
-            if (this.Exponent <= notANumberExponent) //zero or infinity or NaN + something
+            if (Exponent <= NotANumberExponent) //zero or infinity or NaN + something
             {
-                if (this.Exponent == zeroExponent)
+                if (Exponent == ZeroExponent)
                 {
-                    this.SignificandBits = value.SignificandBits;
-                    this.Exponent = value.Exponent;
+                    SignificandBits = value.SignificandBits;
+                    Exponent = value.Exponent;
                 }
                 else
                 {
-                    Quad result = specialAdditionTable[(int)(this.Exponent - zeroExponent), value.Exponent > notANumberExponent ? (int)(4 + (value.SignificandBits >> 63)) : (int)(value.Exponent - zeroExponent)];
-                    this.SignificandBits = result.SignificandBits;
-                    this.Exponent = result.Exponent;
+                    Quad result = SpecialAdditionTable[(int)(Exponent - ZeroExponent), value.Exponent > NotANumberExponent ? (int)(4 + (value.SignificandBits >> 63)) : (int)(value.Exponent - ZeroExponent)];
+                    SignificandBits = result.SignificandBits;
+                    Exponent = result.Exponent;
                 }
 
                 return;
             }
-            else if (value.Exponent <= notANumberExponent) //finite + (infinity or NaN)
+            if (value.Exponent <= NotANumberExponent) //finite + (infinity or NaN)
             {
-                if (value.Exponent != zeroExponent)
+                if (value.Exponent != ZeroExponent)
                 {
-                    Quad result = specialAdditionTable[(int)(4 + (this.SignificandBits >> 63)), (int)(value.Exponent - zeroExponent)];
-                    this.SignificandBits = result.SignificandBits;
-                    this.Exponent = result.Exponent;
+                    Quad result = SpecialAdditionTable[(int)(4 + (SignificandBits >> 63)), (int)(value.Exponent - ZeroExponent)];
+                    SignificandBits = result.SignificandBits;
+                    Exponent = result.Exponent;
                 }
                 return; //if value == 0, no need to change
             }
 
-            if ((this.SignificandBits ^ value.SignificandBits) >= highestBit) //this and value have different signs--use subtraction instead
+            if ((SignificandBits ^ value.SignificandBits) >= HighestBit) //this and value have different signs--use subtraction instead
             {
-                Subtract(new Quad(value.SignificandBits ^ highestBit, value.Exponent));
+                Subtract(new Quad(value.SignificandBits ^ HighestBit, value.Exponent));
                 return;
             }
 
-            if (this.Exponent > value.Exponent)
+            if (Exponent > value.Exponent)
             {
-                if (this.Exponent >= value.Exponent + 64)
+                if (Exponent >= value.Exponent + 64)
                     return; //value too small to make a difference
+                ulong bits = (SignificandBits | HighestBit) + ((value.SignificandBits | HighestBit) >> (int)(Exponent - value.Exponent));
+
+                if (bits < HighestBit) //this can only happen in an overflow  
+                {
+                    SignificandBits = (SignificandBits & HighestBit) | (bits >> 1);
+                    Exponent = Exponent + 1;
+                }
                 else
                 {
-                    ulong bits = (this.SignificandBits | highestBit) + ((value.SignificandBits | highestBit) >> (int)(this.Exponent - value.Exponent));
-
-                    if (bits < highestBit) //this can only happen in an overflow  
-                    {
-                        this.SignificandBits = (this.SignificandBits & highestBit) | (bits >> 1);
-                        this.Exponent = this.Exponent + 1;
-                    }
-                    else
-                    {
-                        this.SignificandBits = (this.SignificandBits & highestBit) | (bits & ~highestBit);
-                        //this.Exponent = this.Exponent; //exponent stays the same
-                    }
+                    SignificandBits = (SignificandBits & HighestBit) | (bits & ~HighestBit);
+                    //this.Exponent = this.Exponent; //exponent stays the same
                 }
             }
-            else if (this.Exponent < value.Exponent)
+            else if (Exponent < value.Exponent)
             {
-                if (value.Exponent >= this.Exponent + 64)
+                if (value.Exponent >= Exponent + 64)
                 {
-                    this.SignificandBits = value.SignificandBits; //too small to matter
-                    this.Exponent = value.Exponent;
+                    SignificandBits = value.SignificandBits; //too small to matter
+                    Exponent = value.Exponent;
                 }
                 else
                 {
-                    ulong bits = (value.SignificandBits | highestBit) + ((this.SignificandBits | highestBit) >> (int)(value.Exponent - this.Exponent));
+                    ulong bits = (value.SignificandBits | HighestBit) + ((SignificandBits | HighestBit) >> (int)(value.Exponent - Exponent));
 
-                    if (bits < highestBit) //this can only happen in an overflow                    
+                    if (bits < HighestBit) //this can only happen in an overflow                    
                     {
-                        this.SignificandBits = (value.SignificandBits & highestBit) | (bits >> 1);
-                        this.Exponent = value.Exponent + 1;
+                        SignificandBits = (value.SignificandBits & HighestBit) | (bits >> 1);
+                        Exponent = value.Exponent + 1;
                     }
                     else
                     {
-                        this.SignificandBits = (value.SignificandBits & highestBit) | (bits & ~highestBit);
-                        this.Exponent = value.Exponent;
+                        SignificandBits = (value.SignificandBits & HighestBit) | (bits & ~HighestBit);
+                        Exponent = value.Exponent;
                     }
                 }
             }
             else //expDiff == 0
             {
                 //the MSB must have the same sign, so the MSB will become 0, and logical overflow is guaranteed in this situation (so we can shift right and increment the exponent).
-                this.SignificandBits = ((this.SignificandBits + value.SignificandBits) >> 1) | (this.SignificandBits & highestBit);
-                this.Exponent = this.Exponent + 1;
+                SignificandBits = ((SignificandBits + value.SignificandBits) >> 1) | (SignificandBits & HighestBit);
+                Exponent = Exponent + 1;
             }
 
             #endregion
@@ -820,18 +1202,11 @@ namespace Quadruple
                 {
                     if (mantissa == 0)
                     {
-                        if (bits >= highestBit) //sign bit set?
-                            value = NegativeInfinity;
-                        else
-                            value = PositiveInfinity;
-
+                        value = bits >= HighestBit ? NegativeInfinity : PositiveInfinity;
                         goto Parsed;
                     }
-                    else
-                    {
-                        value = NaN;
-                        goto Parsed;
-                    }
+                    value = NaN;
+                    goto Parsed;
                 }
 
                 // Subnormal numbers; exponent is effectively one higher,
@@ -845,7 +1220,7 @@ namespace Quadruple
                     }
                     exponent++;
 
-                    int firstSetPosition = nlz(mantissa);
+                    int firstSetPosition = Nlz(mantissa);
                     mantissa <<= firstSetPosition;
                     exponent -= firstSetPosition;
                 }
@@ -857,108 +1232,102 @@ namespace Quadruple
 
                 exponent -= 1075;
 
-                value.SignificandBits = (highestBit & bits) | mantissa;
+                value.SignificandBits = (HighestBit & bits) | mantissa;
                 value.Exponent = exponent;
             }
             Parsed:
             #endregion
 
             #region Subtraction
-            if (this.Exponent <= notANumberExponent) //infinity or NaN - something
+            if (Exponent <= NotANumberExponent) //infinity or NaN - something
             {
-                if (this.Exponent == zeroExponent)
+                if (Exponent == ZeroExponent)
                 {
-                    this.SignificandBits = value.SignificandBits ^ highestBit; //negate value
-                    this.Exponent = value.Exponent;
+                    SignificandBits = value.SignificandBits ^ HighestBit; //negate value
+                    Exponent = value.Exponent;
                 }
                 else
                 {
-                    Quad result = specialSubtractionTable[(int)(this.Exponent - zeroExponent), value.Exponent > notANumberExponent ? (int)(4 + (value.SignificandBits >> 63)) : (int)(value.Exponent - zeroExponent)];
-                    this.SignificandBits = result.SignificandBits;
-                    this.Exponent = result.Exponent;
+                    Quad result = SpecialSubtractionTable[(int)(Exponent - ZeroExponent), value.Exponent > NotANumberExponent ? (int)(4 + (value.SignificandBits >> 63)) : (int)(value.Exponent - ZeroExponent)];
+                    SignificandBits = result.SignificandBits;
+                    Exponent = result.Exponent;
                 }
 
                 return;
             }
-            else if (value.Exponent <= notANumberExponent) //finite - (infinity or NaN)
+            if (value.Exponent <= NotANumberExponent) //finite - (infinity or NaN)
             {
-                if (value.Exponent != zeroExponent)
+                if (value.Exponent != ZeroExponent)
                 {
-                    Quad result = specialSubtractionTable[(int)(4 + (this.SignificandBits >> 63)), (int)(value.Exponent - zeroExponent)];
-                    this.SignificandBits = result.SignificandBits;
-                    this.Exponent = result.Exponent;
+                    Quad result = SpecialSubtractionTable[(int)(4 + (SignificandBits >> 63)), (int)(value.Exponent - ZeroExponent)];
+                    SignificandBits = result.SignificandBits;
+                    Exponent = result.Exponent;
                 }
 
                 return;
             }
 
-            if ((this.SignificandBits ^ value.SignificandBits) >= highestBit) //this and value have different signs--use addition instead            
+            if ((SignificandBits ^ value.SignificandBits) >= HighestBit) //this and value have different signs--use addition instead            
             {
-                this.Add(new Quad(value.SignificandBits ^ highestBit, value.Exponent));
+                Add(new Quad(value.SignificandBits ^ HighestBit, value.Exponent));
                 return;
             }
 
-            if (this.Exponent > value.Exponent)
+            if (Exponent > value.Exponent)
             {
-                if (this.Exponent >= value.Exponent + 64)
+                if (Exponent >= value.Exponent + 64)
                     return; //value too small to make a difference
-                else
-                {
-                    ulong bits = (this.SignificandBits | highestBit) - ((value.SignificandBits | highestBit) >> (int)(this.Exponent - value.Exponent));
+                ulong bits = (SignificandBits | HighestBit) - ((value.SignificandBits | HighestBit) >> (int)(Exponent - value.Exponent));
 
-                    //make sure MSB is 1                       
-                    int highestBitPos = nlz(bits);
-                    this.SignificandBits = ((bits << highestBitPos) & ~highestBit) | (this.SignificandBits & highestBit);
-                    this.Exponent = this.Exponent - highestBitPos;
-                }
+                //make sure MSB is 1                       
+                int highestBitPos = Nlz(bits);
+                SignificandBits = ((bits << highestBitPos) & ~HighestBit) | (SignificandBits & HighestBit);
+                Exponent = Exponent - highestBitPos;
             }
-            else if (this.Exponent < value.Exponent) //must subtract our significand from value, and switch the sign
+            else if (Exponent < value.Exponent) //must subtract our significand from value, and switch the sign
             {
-                if (value.Exponent >= this.Exponent + 64)
+                if (value.Exponent >= Exponent + 64)
                 {
-                    this.SignificandBits = value.SignificandBits ^ highestBit;
-                    this.Exponent = value.Exponent;
+                    SignificandBits = value.SignificandBits ^ HighestBit;
+                    Exponent = value.Exponent;
                     return;
                 }
-                else
-                {
-                    ulong bits = (value.SignificandBits | highestBit) - ((this.SignificandBits | highestBit) >> (int)(value.Exponent - this.Exponent));
+                ulong bits = (value.SignificandBits | HighestBit) - ((SignificandBits | HighestBit) >> (int)(value.Exponent - Exponent));
 
-                    //make sure MSB is 1                       
-                    int highestBitPos = nlz(bits);
-                    this.SignificandBits = ((bits << highestBitPos) & ~highestBit) | (~value.SignificandBits & highestBit);
-                    this.Exponent = value.Exponent - highestBitPos;
-                }
+                //make sure MSB is 1                       
+                int highestBitPos = Nlz(bits);
+                SignificandBits = ((bits << highestBitPos) & ~HighestBit) | (~value.SignificandBits & HighestBit);
+                Exponent = value.Exponent - highestBitPos;
             }
             else // (this.Exponent == value.Exponent)
             {
-                if (value.SignificandBits > this.SignificandBits) //must switch sign
+                if (value.SignificandBits > SignificandBits) //must switch sign
                 {
-                    ulong bits = value.SignificandBits - this.SignificandBits; //notice that we don't worry about de-implicitizing the MSB--it'd be eliminated by subtraction anyway
-                    int highestBitPos = nlz(bits);
-                    this.SignificandBits = ((bits << highestBitPos) & ~highestBit) | (~value.SignificandBits & highestBit);
-                    this.Exponent = value.Exponent - highestBitPos;
+                    ulong bits = value.SignificandBits - SignificandBits; //notice that we don't worry about de-implicitizing the MSB--it'd be eliminated by subtraction anyway
+                    int highestBitPos = Nlz(bits);
+                    SignificandBits = ((bits << highestBitPos) & ~HighestBit) | (~value.SignificandBits & HighestBit);
+                    Exponent = value.Exponent - highestBitPos;
                 }
-                else if (value.SignificandBits < this.SignificandBits) //sign remains the same
+                else if (value.SignificandBits < SignificandBits) //sign remains the same
                 {
-                    ulong bits = this.SignificandBits - value.SignificandBits; //notice that we don't worry about de-implicitizing the MSB--it'd be eliminated by subtraction anyway
-                    int highestBitPos = nlz(bits);
-                    this.SignificandBits = ((bits << highestBitPos) & ~highestBit) | (this.SignificandBits & highestBit);
-                    this.Exponent = this.Exponent - highestBitPos;
+                    ulong bits = SignificandBits - value.SignificandBits; //notice that we don't worry about de-implicitizing the MSB--it'd be eliminated by subtraction anyway
+                    int highestBitPos = Nlz(bits);
+                    SignificandBits = ((bits << highestBitPos) & ~HighestBit) | (SignificandBits & HighestBit);
+                    Exponent = Exponent - highestBitPos;
                 }
                 else //this == value
                 {
                     //result is 0
-                    this.SignificandBits = 0;
-                    this.Exponent = zeroExponent;
+                    SignificandBits = 0;
+                    Exponent = ZeroExponent;
                     return;
                 }
             }
 
-            if (this.Exponent < exponentLowerBound) //catch underflow
+            if (Exponent < ExponentLowerBound) //catch underflow
             {
-                this.SignificandBits = 0;
-                this.Exponent = zeroExponent;
+                SignificandBits = 0;
+                Exponent = ZeroExponent;
             }
 
             #endregion
@@ -967,101 +1336,95 @@ namespace Quadruple
         public void Subtract(Quad value)
         {
             #region Subtraction
-            if (this.Exponent <= notANumberExponent) //infinity or NaN - something
+            if (Exponent <= NotANumberExponent) //infinity or NaN - something
             {
-                if (this.Exponent == zeroExponent)
+                if (Exponent == ZeroExponent)
                 {
-                    this.SignificandBits = value.SignificandBits ^ highestBit; //negate value
-                    this.Exponent = value.Exponent;
+                    SignificandBits = value.SignificandBits ^ HighestBit; //negate value
+                    Exponent = value.Exponent;
                 }
                 else
                 {
-                    Quad result = specialSubtractionTable[(int)(this.Exponent - zeroExponent), value.Exponent > notANumberExponent ? (int)(4 + (value.SignificandBits >> 63)) : (int)(value.Exponent - zeroExponent)];
-                    this.SignificandBits = result.SignificandBits;
-                    this.Exponent = result.Exponent;
+                    Quad result = SpecialSubtractionTable[(int)(Exponent - ZeroExponent), value.Exponent > NotANumberExponent ? (int)(4 + (value.SignificandBits >> 63)) : (int)(value.Exponent - ZeroExponent)];
+                    SignificandBits = result.SignificandBits;
+                    Exponent = result.Exponent;
                 }
 
                 return;
             }
-            else if (value.Exponent <= notANumberExponent) //finite - (infinity or NaN)
+            if (value.Exponent <= NotANumberExponent) //finite - (infinity or NaN)
             {
-                if (value.Exponent != zeroExponent)
+                if (value.Exponent != ZeroExponent)
                 {
-                    Quad result = specialSubtractionTable[(int)(4 + (this.SignificandBits >> 63)), (int)(value.Exponent - zeroExponent)];
-                    this.SignificandBits = result.SignificandBits;
-                    this.Exponent = result.Exponent;
+                    Quad result = SpecialSubtractionTable[(int)(4 + (SignificandBits >> 63)), (int)(value.Exponent - ZeroExponent)];
+                    SignificandBits = result.SignificandBits;
+                    Exponent = result.Exponent;
                 }
 
                 return;
             }
 
-            if ((this.SignificandBits ^ value.SignificandBits) >= highestBit) //this and value have different signs--use addition instead            
+            if ((SignificandBits ^ value.SignificandBits) >= HighestBit) //this and value have different signs--use addition instead            
             {
-                this.Add(new Quad(value.SignificandBits ^ highestBit, value.Exponent));
+                Add(new Quad(value.SignificandBits ^ HighestBit, value.Exponent));
                 return;
             }
 
-            if (this.Exponent > value.Exponent)
+            if (Exponent > value.Exponent)
             {
-                if (this.Exponent >= value.Exponent + 64)
+                if (Exponent >= value.Exponent + 64)
                     return; //value too small to make a difference
-                else
-                {
-                    ulong bits = (this.SignificandBits | highestBit) - ((value.SignificandBits | highestBit) >> (int)(this.Exponent - value.Exponent));
+                ulong bits = (SignificandBits | HighestBit) - ((value.SignificandBits | HighestBit) >> (int)(Exponent - value.Exponent));
 
-                    //make sure MSB is 1                       
-                    int highestBitPos = nlz(bits);
-                    this.SignificandBits = ((bits << highestBitPos) & ~highestBit) | (this.SignificandBits & highestBit);
-                    this.Exponent = this.Exponent - highestBitPos;
-                }
+                //make sure MSB is 1                       
+                int highestBitPos = Nlz(bits);
+                SignificandBits = ((bits << highestBitPos) & ~HighestBit) | (SignificandBits & HighestBit);
+                Exponent = Exponent - highestBitPos;
             }
-            else if (this.Exponent < value.Exponent) //must subtract our significand from value, and switch the sign
+            else if (Exponent < value.Exponent) //must subtract our significand from value, and switch the sign
             {
-                if (value.Exponent >= this.Exponent + 64)
+                if (value.Exponent >= Exponent + 64)
                 {
-                    this.SignificandBits = value.SignificandBits ^ highestBit;
-                    this.Exponent = value.Exponent;
+                    SignificandBits = value.SignificandBits ^ HighestBit;
+                    Exponent = value.Exponent;
                     return;
                 }
-                else
-                {
-                    ulong bits = (value.SignificandBits | highestBit) - ((this.SignificandBits | highestBit) >> (int)(value.Exponent - this.Exponent));
+                ulong bits = (value.SignificandBits | HighestBit) - ((SignificandBits | HighestBit) >> (int)(value.Exponent - Exponent));
 
-                    //make sure MSB is 1                       
-                    int highestBitPos = nlz(bits);
-                    this.SignificandBits = ((bits << highestBitPos) & ~highestBit) | (~value.SignificandBits & highestBit);
-                    this.Exponent = value.Exponent - highestBitPos;
-                }
+                //make sure MSB is 1                       
+                int highestBitPos = Nlz(bits);
+                SignificandBits = ((bits << highestBitPos) & ~HighestBit) | (~value.SignificandBits & HighestBit);
+                Exponent = value.Exponent - highestBitPos;
             }
             else // (this.Exponent == value.Exponent)
             {
-                if (value.SignificandBits > this.SignificandBits) //must switch sign
+                if (value.SignificandBits > SignificandBits) //must switch sign
                 {
-                    ulong bits = value.SignificandBits - this.SignificandBits; //notice that we don't worry about de-implicitizing the MSB--it'd be eliminated by subtraction anyway
-                    int highestBitPos = nlz(bits);
-                    this.SignificandBits = ((bits << highestBitPos) & ~highestBit) | (~value.SignificandBits & highestBit);
-                    this.Exponent = value.Exponent - highestBitPos;
+                    ulong bits = value.SignificandBits - SignificandBits; //notice that we don't worry about de-implicitizing the MSB--it'd be eliminated by subtraction anyway
+                    int highestBitPos = Nlz(bits);
+                    SignificandBits = ((bits << highestBitPos) & ~HighestBit) | (~value.SignificandBits & HighestBit);
+                    Exponent = value.Exponent - highestBitPos;
                 }
-                else if (value.SignificandBits < this.SignificandBits) //sign remains the same
+                else if (value.SignificandBits < SignificandBits) //sign remains the same
                 {
-                    ulong bits = this.SignificandBits - value.SignificandBits; //notice that we don't worry about de-implicitizing the MSB--it'd be eliminated by subtraction anyway
-                    int highestBitPos = nlz(bits);
-                    this.SignificandBits = ((bits << highestBitPos) & ~highestBit) | (this.SignificandBits & highestBit);
-                    this.Exponent = this.Exponent - highestBitPos;
+                    ulong bits = SignificandBits - value.SignificandBits; //notice that we don't worry about de-implicitizing the MSB--it'd be eliminated by subtraction anyway
+                    int highestBitPos = Nlz(bits);
+                    SignificandBits = ((bits << highestBitPos) & ~HighestBit) | (SignificandBits & HighestBit);
+                    Exponent = Exponent - highestBitPos;
                 }
                 else //this == value
                 {
                     //result is 0
-                    this.SignificandBits = 0;
-                    this.Exponent = zeroExponent;
+                    SignificandBits = 0;
+                    Exponent = ZeroExponent;
                     return;
                 }
             }
 
-            if (this.Exponent < exponentLowerBound) //catch underflow
+            if (Exponent < ExponentLowerBound) //catch underflow
             {
-                this.SignificandBits = 0;
-                this.Exponent = zeroExponent;
+                SignificandBits = 0;
+                Exponent = ZeroExponent;
             }
 
             #endregion
@@ -1089,18 +1452,11 @@ namespace Quadruple
                 {
                     if (mantissa == 0)
                     {
-                        if (bits >= highestBit) //sign bit set?
-                            divisor = NegativeInfinity;
-                        else
-                            divisor = PositiveInfinity;
-
+                        divisor = bits >= HighestBit ? NegativeInfinity : PositiveInfinity;
                         goto Parsed;
                     }
-                    else
-                    {
-                        divisor = NaN;
-                        goto Parsed;
-                    }
+                    divisor = NaN;
+                    goto Parsed;
                 }
 
                 // Subnormal numbers; exponent is effectively one higher,
@@ -1114,7 +1470,7 @@ namespace Quadruple
                     }
                     exponent++;
 
-                    int firstSetPosition = nlz(mantissa);
+                    int firstSetPosition = Nlz(mantissa);
                     mantissa <<= firstSetPosition;
                     exponent -= firstSetPosition;
                 }
@@ -1126,25 +1482,25 @@ namespace Quadruple
 
                 exponent -= 1075;
 
-                divisor.SignificandBits = (highestBit & bits) | mantissa;
+                divisor.SignificandBits = (HighestBit & bits) | mantissa;
                 divisor.Exponent = exponent;
             }
             Parsed:
             #endregion
 
             #region Division
-            if (this.Exponent <= notANumberExponent) //zero/infinity/NaN divided by something
+            if (Exponent <= NotANumberExponent) //zero/infinity/NaN divided by something
             {
-                Quad result = specialDivisionTable[(int)(this.Exponent - zeroExponent), divisor.Exponent > notANumberExponent ? (int)(4 + (divisor.SignificandBits >> 63)) : (int)(divisor.Exponent - zeroExponent)];
-                this.SignificandBits = result.SignificandBits;
-                this.Exponent = result.Exponent;
+                Quad result = SpecialDivisionTable[(int)(Exponent - ZeroExponent), divisor.Exponent > NotANumberExponent ? (int)(4 + (divisor.SignificandBits >> 63)) : (int)(divisor.Exponent - ZeroExponent)];
+                SignificandBits = result.SignificandBits;
+                Exponent = result.Exponent;
                 return;
             }
-            else if (divisor.Exponent <= notANumberExponent) //finite divided by zero/infinity/NaN
+            if (divisor.Exponent <= NotANumberExponent) //finite divided by zero/infinity/NaN
             {
-                Quad result = specialDivisionTable[(int)(4 + (this.SignificandBits >> 63)), (int)(divisor.Exponent - zeroExponent)];
-                this.SignificandBits = result.SignificandBits;
-                this.Exponent = result.Exponent;
+                Quad result = SpecialDivisionTable[(int)(4 + (SignificandBits >> 63)), (int)(divisor.Exponent - ZeroExponent)];
+                SignificandBits = result.SignificandBits;
+                Exponent = result.Exponent;
                 return;
             }
 
@@ -1160,14 +1516,14 @@ namespace Quadruple
             //divisor.Significand |= highestBit;
 
             long adjExponent = 0;
-            ulong thisAdjSignificand = this.SignificandBits | highestBit;
-            ulong divisorAdjSignificand = divisor.SignificandBits | highestBit;
+            ulong thisAdjSignificand = SignificandBits | HighestBit;
+            ulong divisorAdjSignificand = divisor.SignificandBits | HighestBit;
 
             if (thisAdjSignificand >= divisorAdjSignificand)
             {
                 //need to make this's significand smaller than divisor's
                 adjExponent = 1;
-                un1 = (this.SignificandBits & 1) << 31;
+                un1 = (SignificandBits & 1) << 31;
                 thisAdjSignificand = thisAdjSignificand >> 1;
             }
 
@@ -1177,26 +1533,26 @@ namespace Quadruple
             q1 = thisAdjSignificand / vn1;            // Compute the first
             rhat = thisAdjSignificand - q1 * vn1;     // quotient digit, q1.
             again1:
-            if (q1 >= b || q1 * vn0 > b * rhat + un1)
+            if (q1 >= B || q1 * vn0 > B * rhat + un1)
             {
                 q1 = q1 - 1;
                 rhat = rhat + vn1;
-                if (rhat < b) goto again1;
+                if (rhat < B) goto again1;
             }
 
-            un21 = thisAdjSignificand * b + un1 - q1 * divisorAdjSignificand;  // Multiply and subtract.
+            un21 = thisAdjSignificand * B + un1 - q1 * divisorAdjSignificand;  // Multiply and subtract.
 
             q0 = un21 / vn1;            // Compute the second
             rhat = un21 - q0 * vn1;     // quotient digit, q0.
             again2:
-            if (q0 >= b || q0 * vn0 > b * rhat)
+            if (q0 >= B || q0 * vn0 > B * rhat)
             {
                 q0 = q0 - 1;
                 rhat = rhat + vn1;
-                if (rhat < b) goto again2;
+                if (rhat < B) goto again2;
             }
 
-            thisAdjSignificand = q1 * b + q0; //convenient place to store intermediate result
+            thisAdjSignificand = q1 * B + q0; //convenient place to store intermediate result
 
             //if (this.Significand == 0) //the final significand should never be 0
             //    result.Exponent = 0;
@@ -1207,41 +1563,41 @@ namespace Quadruple
 
             if (thisAdjSignificand < (1UL << 63))
             {
-                this.SignificandBits = (~highestBit & (thisAdjSignificand << 1)) | ((this.SignificandBits ^ divisor.SignificandBits) & highestBit);
+                SignificandBits = (~HighestBit & (thisAdjSignificand << 1)) | ((SignificandBits ^ divisor.SignificandBits) & HighestBit);
 
-                originalExponent = this.Exponent - 1 + adjExponent;
+                originalExponent = Exponent - 1 + adjExponent;
                 divisorExponent = divisor.Exponent + 64;
             }
             else
             {
-                this.SignificandBits = (~highestBit & thisAdjSignificand) | ((this.SignificandBits ^ divisor.SignificandBits) & highestBit);
+                SignificandBits = (~HighestBit & thisAdjSignificand) | ((SignificandBits ^ divisor.SignificandBits) & HighestBit);
 
-                originalExponent = this.Exponent + adjExponent;
+                originalExponent = Exponent + adjExponent;
                 divisorExponent = divisor.Exponent + 64;
             }
 
-            this.Exponent = originalExponent - divisorExponent;
+            Exponent = originalExponent - divisorExponent;
 
             //now check for underflow or overflow
-            if (divisorExponent > 0 && this.Exponent > originalExponent) //underflow
+            if (divisorExponent > 0 && Exponent > originalExponent) //underflow
             {
-                this.SignificandBits = 0;
-                this.Exponent = zeroExponent; //new value is 0
+                SignificandBits = 0;
+                Exponent = ZeroExponent; //new value is 0
             }
-            else if (divisorExponent < 0 && this.Exponent < originalExponent) //overflow
+            else if (divisorExponent < 0 && Exponent < originalExponent) //overflow
             {
-                this.SignificandBits = 0;// (this.SignificandBits & highestBit);
-                this.Exponent = this.SignificandBits >= highestBit ? negativeInfinityExponent : infinityExponent;
+                SignificandBits = 0;// (this.SignificandBits & highestBit);
+                Exponent = SignificandBits >= HighestBit ? NegativeInfinityExponent : InfinityExponent;
             }
-            else if (this.Exponent < exponentLowerBound)
+            else if (Exponent < ExponentLowerBound)
             {
-                this.SignificandBits = 0;
-                this.Exponent = zeroExponent; //new value is 0
+                SignificandBits = 0;
+                Exponent = ZeroExponent; //new value is 0
             }
-            else if (this.Exponent > exponentUpperBound)
+            else if (Exponent > ExponentUpperBound)
             {
-                this.SignificandBits = 0;// (this.SignificandBits & highestBit);
-                this.Exponent = this.SignificandBits >= highestBit ? negativeInfinityExponent : infinityExponent;
+                SignificandBits = 0;// (this.SignificandBits & highestBit);
+                Exponent = SignificandBits >= HighestBit ? NegativeInfinityExponent : InfinityExponent;
             }
 
             #endregion
@@ -1250,18 +1606,18 @@ namespace Quadruple
         public void Divide(Quad divisor)
         {
             #region Division
-            if (this.Exponent <= notANumberExponent) //zero/infinity/NaN divided by something
+            if (Exponent <= NotANumberExponent) //zero/infinity/NaN divided by something
             {
-                Quad result = specialDivisionTable[(int)(this.Exponent - zeroExponent), divisor.Exponent > notANumberExponent ? (int)(4 + (divisor.SignificandBits >> 63)) : (int)(divisor.Exponent - zeroExponent)];
-                this.SignificandBits = result.SignificandBits;
-                this.Exponent = result.Exponent;
+                Quad result = SpecialDivisionTable[(int)(Exponent - ZeroExponent), divisor.Exponent > NotANumberExponent ? (int)(4 + (divisor.SignificandBits >> 63)) : (int)(divisor.Exponent - ZeroExponent)];
+                SignificandBits = result.SignificandBits;
+                Exponent = result.Exponent;
                 return;
             }
-            else if (divisor.Exponent <= notANumberExponent) //finite divided by zero/infinity/NaN
+            if (divisor.Exponent <= NotANumberExponent) //finite divided by zero/infinity/NaN
             {
-                Quad result = specialDivisionTable[(int)(4 + (this.SignificandBits >> 63)), (int)(divisor.Exponent - zeroExponent)];
-                this.SignificandBits = result.SignificandBits;
-                this.Exponent = result.Exponent;
+                Quad result = SpecialDivisionTable[(int)(4 + (SignificandBits >> 63)), (int)(divisor.Exponent - ZeroExponent)];
+                SignificandBits = result.SignificandBits;
+                Exponent = result.Exponent;
                 return;
             }
 
@@ -1277,14 +1633,14 @@ namespace Quadruple
             //divisor.Significand |= highestBit;
 
             long adjExponent = 0;
-            ulong thisAdjSignificand = this.SignificandBits | highestBit;
-            ulong divisorAdjSignificand = divisor.SignificandBits | highestBit;
+            ulong thisAdjSignificand = SignificandBits | HighestBit;
+            ulong divisorAdjSignificand = divisor.SignificandBits | HighestBit;
 
             if (thisAdjSignificand >= divisorAdjSignificand)
             {
                 //need to make this's significand smaller than divisor's
                 adjExponent = 1;
-                un1 = (this.SignificandBits & 1) << 31;
+                un1 = (SignificandBits & 1) << 31;
                 thisAdjSignificand = thisAdjSignificand >> 1;
             }
 
@@ -1294,26 +1650,26 @@ namespace Quadruple
             q1 = thisAdjSignificand / vn1;            // Compute the first
             rhat = thisAdjSignificand - q1 * vn1;     // quotient digit, q1.
             again1:
-            if (q1 >= b || q1 * vn0 > b * rhat + un1)
+            if (q1 >= B || q1 * vn0 > B * rhat + un1)
             {
                 q1 = q1 - 1;
                 rhat = rhat + vn1;
-                if (rhat < b) goto again1;
+                if (rhat < B) goto again1;
             }
 
-            un21 = thisAdjSignificand * b + un1 - q1 * divisorAdjSignificand;  // Multiply and subtract.
+            un21 = thisAdjSignificand * B + un1 - q1 * divisorAdjSignificand;  // Multiply and subtract.
 
             q0 = un21 / vn1;            // Compute the second
             rhat = un21 - q0 * vn1;     // quotient digit, q0.
             again2:
-            if (q0 >= b || q0 * vn0 > b * rhat)
+            if (q0 >= B || q0 * vn0 > B * rhat)
             {
                 q0 = q0 - 1;
                 rhat = rhat + vn1;
-                if (rhat < b) goto again2;
+                if (rhat < B) goto again2;
             }
 
-            thisAdjSignificand = q1 * b + q0; //convenient place to store intermediate result
+            thisAdjSignificand = q1 * B + q0; //convenient place to store intermediate result
 
             //if (this.Significand == 0) //the final significand should never be 0
             //    result.Exponent = 0;
@@ -1324,41 +1680,41 @@ namespace Quadruple
 
             if (thisAdjSignificand < (1UL << 63))
             {
-                this.SignificandBits = (~highestBit & (thisAdjSignificand << 1)) | ((this.SignificandBits ^ divisor.SignificandBits) & highestBit);
+                SignificandBits = (~HighestBit & (thisAdjSignificand << 1)) | ((SignificandBits ^ divisor.SignificandBits) & HighestBit);
 
-                originalExponent = this.Exponent - 1 + adjExponent;
+                originalExponent = Exponent - 1 + adjExponent;
                 divisorExponent = divisor.Exponent + 64;
             }
             else
             {
-                this.SignificandBits = (~highestBit & thisAdjSignificand) | ((this.SignificandBits ^ divisor.SignificandBits) & highestBit);
+                SignificandBits = (~HighestBit & thisAdjSignificand) | ((SignificandBits ^ divisor.SignificandBits) & HighestBit);
 
-                originalExponent = this.Exponent + adjExponent;
+                originalExponent = Exponent + adjExponent;
                 divisorExponent = divisor.Exponent + 64;
             }
 
-            this.Exponent = originalExponent - divisorExponent;
+            Exponent = originalExponent - divisorExponent;
 
             //now check for underflow or overflow
-            if (divisorExponent > 0 && this.Exponent > originalExponent) //underflow
+            if (divisorExponent > 0 && Exponent > originalExponent) //underflow
             {
-                this.SignificandBits = 0;
-                this.Exponent = zeroExponent; //new value is 0
+                SignificandBits = 0;
+                Exponent = ZeroExponent; //new value is 0
             }
-            else if (divisorExponent < 0 && this.Exponent < originalExponent) //overflow
+            else if (divisorExponent < 0 && Exponent < originalExponent) //overflow
             {
-                this.SignificandBits = 0;// (this.SignificandBits & highestBit);
-                this.Exponent = this.SignificandBits >= highestBit ? negativeInfinityExponent : infinityExponent;
+                SignificandBits = 0;// (this.SignificandBits & highestBit);
+                Exponent = SignificandBits >= HighestBit ? NegativeInfinityExponent : InfinityExponent;
             }
-            else if (this.Exponent < exponentLowerBound)
+            else if (Exponent < ExponentLowerBound)
             {
-                this.SignificandBits = 0;
-                this.Exponent = zeroExponent; //new value is 0
+                SignificandBits = 0;
+                Exponent = ZeroExponent; //new value is 0
             }
-            else if (this.Exponent > exponentUpperBound)
+            else if (Exponent > ExponentUpperBound)
             {
-                this.SignificandBits = 0;// (this.SignificandBits & highestBit);
-                this.Exponent = this.SignificandBits >= highestBit ? negativeInfinityExponent : infinityExponent;
+                SignificandBits = 0;// (this.SignificandBits & highestBit);
+                Exponent = SignificandBits >= HighestBit ? NegativeInfinityExponent : InfinityExponent;
             }
 
             #endregion
@@ -1374,10 +1730,9 @@ namespace Quadruple
         /// <returns></returns>        
         public static Quad operator <<(Quad qd, int shift)
         {
-            if (qd.Exponent <= notANumberExponent)
+            if (qd.Exponent <= NotANumberExponent)
                 return qd; //finite * infinity == infinity, finite * NaN == NaN, finite * 0 == 0
-            else
-                return new Quad(qd.SignificandBits, qd.Exponent + shift);
+            return new Quad(qd.SignificandBits, qd.Exponent + shift);
         }
 
         /// <summary>
@@ -1388,10 +1743,9 @@ namespace Quadruple
         /// <returns></returns>
         public static Quad operator >>(Quad qd, int shift)
         {
-            if (qd.Exponent <= notANumberExponent)
+            if (qd.Exponent <= NotANumberExponent)
                 return qd; //infinity / finite == infinity, NaN / finite == NaN, 0 / finite == 0
-            else
-                return new Quad(qd.SignificandBits, qd.Exponent - shift);
+            return new Quad(qd.SignificandBits, qd.Exponent - shift);
         }
 
         /// <summary>
@@ -1402,10 +1756,9 @@ namespace Quadruple
         /// <returns></returns>        
         public static Quad LeftShift(Quad qd, long shift)
         {
-            if (qd.Exponent <= notANumberExponent)
+            if (qd.Exponent <= NotANumberExponent)
                 return qd; //finite * infinity == infinity, finite * NaN == NaN, finite * 0 == 0
-            else
-                return new Quad(qd.SignificandBits, qd.Exponent + shift);
+            return new Quad(qd.SignificandBits, qd.Exponent + shift);
         }
 
         /// <summary>
@@ -1416,10 +1769,9 @@ namespace Quadruple
         /// <returns></returns>
         public static Quad RightShift(Quad qd, long shift)
         {
-            if (qd.Exponent <= notANumberExponent)
+            if (qd.Exponent <= NotANumberExponent)
                 return qd; //infinity / finite == infinity, NaN / finite == NaN, 0 / finite == 0
-            else
-                return new Quad(qd.SignificandBits, qd.Exponent - shift);
+            return new Quad(qd.SignificandBits, qd.Exponent - shift);
         }
 
         /// <summary>
@@ -1434,14 +1786,14 @@ namespace Quadruple
         /// </remarks>
         public static Quad operator /(Quad qd1, Quad qd2)
         {
-            if (qd1.Exponent <= notANumberExponent) //zero/infinity/NaN divided by something            
-                return specialDivisionTable[(int)(qd1.Exponent - zeroExponent), qd2.Exponent > notANumberExponent ? (int)(4 + (qd2.SignificandBits >> 63)) : (int)(qd2.Exponent - zeroExponent)];
-            else if (qd2.Exponent <= notANumberExponent) //finite divided by zero/infinity/NaN            
-                return specialDivisionTable[(int)(4 + (qd1.SignificandBits >> 63)), (int)(qd2.Exponent - zeroExponent)];
+            if (qd1.Exponent <= NotANumberExponent) //zero/infinity/NaN divided by something            
+                return SpecialDivisionTable[(int)(qd1.Exponent - ZeroExponent), qd2.Exponent > NotANumberExponent ? (int)(4 + (qd2.SignificandBits >> 63)) : (int)(qd2.Exponent - ZeroExponent)];
+            if (qd2.Exponent <= NotANumberExponent) //finite divided by zero/infinity/NaN            
+                return SpecialDivisionTable[(int)(4 + (qd1.SignificandBits >> 63)), (int)(qd2.Exponent - ZeroExponent)];
 
             if (qd2.Exponent == long.MinValue)
                 throw new DivideByZeroException();
-            else if (qd1.Exponent == long.MinValue)
+            if (qd1.Exponent == long.MinValue)
                 return Zero;
 
             ulong un1 = 0,     // Norm. dividend LSD's.
@@ -1451,8 +1803,8 @@ namespace Quadruple
                      rhat;            // A remainder.                        
 
             long adjExponent = 0;
-            ulong qd1AdjSignificand = qd1.SignificandBits | highestBit;  //de-implicitize the 1 before the binary point
-            ulong qd2AdjSignificand = qd2.SignificandBits | highestBit;  //de-implicitize the 1 before the binary point
+            ulong qd1AdjSignificand = qd1.SignificandBits | HighestBit;  //de-implicitize the 1 before the binary point
+            ulong qd2AdjSignificand = qd2.SignificandBits | HighestBit;  //de-implicitize the 1 before the binary point
 
             if (qd1AdjSignificand >= qd2AdjSignificand)
             {
@@ -1472,26 +1824,26 @@ namespace Quadruple
             q1 = qd1AdjSignificand / vn1;            // Compute the first
             rhat = qd1AdjSignificand - q1 * vn1;     // quotient digit, q1.
             again1:
-            if (q1 >= b || q1 * vn0 > b * rhat + un1)
+            if (q1 >= B || q1 * vn0 > B * rhat + un1)
             {
                 q1 = q1 - 1;
                 rhat = rhat + vn1;
-                if (rhat < b) goto again1;
+                if (rhat < B) goto again1;
             }
 
-            un21 = qd1AdjSignificand * b + un1 - q1 * qd2AdjSignificand;  // Multiply and subtract.
+            un21 = qd1AdjSignificand * B + un1 - q1 * qd2AdjSignificand;  // Multiply and subtract.
 
             q0 = un21 / vn1;            // Compute the second
             rhat = un21 - q0 * vn1;     // quotient digit, q0.
             again2:
-            if (q0 >= b || q0 * vn0 > b * rhat)
+            if (q0 >= B || q0 * vn0 > B * rhat)
             {
                 q0 = q0 - 1;
                 rhat = rhat + vn1;
-                if (rhat < b) goto again2;
+                if (rhat < B) goto again2;
             }
 
-            qd1AdjSignificand = q1 * b + q0; //convenient place to store intermediate result
+            qd1AdjSignificand = q1 * B + q0; //convenient place to store intermediate result
 
             //if (qd1.Significand == 0) //the final significand should never be 0
             //    result.Exponent = 0;
@@ -1503,14 +1855,14 @@ namespace Quadruple
 
             if (qd1AdjSignificand < (1UL << 63))
             {
-                result.SignificandBits = (~highestBit & (qd1AdjSignificand << 1)) | ((qd1.SignificandBits ^ qd2.SignificandBits) & highestBit);
+                result.SignificandBits = (~HighestBit & (qd1AdjSignificand << 1)) | ((qd1.SignificandBits ^ qd2.SignificandBits) & HighestBit);
 
                 originalExponent = qd1.Exponent - 1 + adjExponent;
                 divisorExponent = qd2.Exponent + 64;
             }
             else
             {
-                result.SignificandBits = (~highestBit & qd1AdjSignificand) | ((qd1.SignificandBits ^ qd2.SignificandBits) & highestBit);
+                result.SignificandBits = (~HighestBit & qd1AdjSignificand) | ((qd1.SignificandBits ^ qd2.SignificandBits) & HighestBit);
 
                 originalExponent = qd1.Exponent + adjExponent;
                 divisorExponent = qd2.Exponent + 64;
@@ -1521,14 +1873,13 @@ namespace Quadruple
             //now check for underflow or overflow
             if (divisorExponent > 0 && result.Exponent > originalExponent) //underflow
                 return Zero;
-            else if (divisorExponent < 0 && result.Exponent < originalExponent) //overflow            
-                return result.SignificandBits >= highestBit ? NegativeInfinity : PositiveInfinity;
-            else if (result.Exponent < exponentLowerBound)
+            if (divisorExponent < 0 && result.Exponent < originalExponent) //overflow            
+                return result.SignificandBits >= HighestBit ? NegativeInfinity : PositiveInfinity;
+            if (result.Exponent < ExponentLowerBound)
                 return Zero;
-            else if (result.Exponent > exponentUpperBound)
-                return result.SignificandBits >= highestBit ? NegativeInfinity : PositiveInfinity;
-            else
-                return result;
+            if (result.Exponent > ExponentUpperBound)
+                return result.SignificandBits >= HighestBit ? NegativeInfinity : PositiveInfinity;
+            return result;
         }
 
         /// <summary>
@@ -1540,12 +1891,11 @@ namespace Quadruple
         /// <returns></returns>
         public static Quad operator %(Quad qd1, Quad qd2)
         {
-            if (qd2.Exponent == infinityExponent || qd2.Exponent == negativeInfinityExponent)
+            if (qd2.Exponent == InfinityExponent || qd2.Exponent == NegativeInfinityExponent)
             {
-                if (qd1.Exponent == infinityExponent || qd1.Exponent == negativeInfinityExponent)
+                if (qd1.Exponent == InfinityExponent || qd1.Exponent == NegativeInfinityExponent)
                     return NaN;
-                else
-                    return qd1;
+                return qd1;
             }
 
             return qd1 - (qd2 * Truncate(qd1 / qd2));
@@ -1553,32 +1903,31 @@ namespace Quadruple
 
         public static Quad operator -(Quad qd)
         {
-            if (qd.Exponent <= notANumberExponent)
+            if (qd.Exponent <= NotANumberExponent)
             {
-                if (qd.Exponent == infinityExponent) return NegativeInfinity;
-                else if (qd.Exponent == negativeInfinityExponent) return PositiveInfinity;
-                else return qd;
+                if (qd.Exponent == InfinityExponent) return NegativeInfinity;
+                if (qd.Exponent == NegativeInfinityExponent) return PositiveInfinity;
+                return qd;
             }
-            else
-                return new Quad(qd.SignificandBits ^ highestBit, qd.Exponent); //just swap the sign bit                        
+            return new Quad(qd.SignificandBits ^ HighestBit, qd.Exponent); //just swap the sign bit                        
         }
 
         public static Quad operator +(Quad qd1, Quad qd2)
         {
-            if (qd1.Exponent <= notANumberExponent) //zero or infinity or NaN + something
+            if (qd1.Exponent <= NotANumberExponent) //zero or infinity or NaN + something
             {
-                if (qd1.Exponent == zeroExponent) return qd2;
-                else return specialAdditionTable[(int)(qd1.Exponent - zeroExponent), qd2.Exponent > notANumberExponent ? (int)(4 + (qd2.SignificandBits >> 63)) : (int)(qd2.Exponent - zeroExponent)];
+                if (qd1.Exponent == ZeroExponent) return qd2;
+                return SpecialAdditionTable[(int)(qd1.Exponent - ZeroExponent), qd2.Exponent > NotANumberExponent ? (int)(4 + (qd2.SignificandBits >> 63)) : (int)(qd2.Exponent - ZeroExponent)];
             }
-            else if (qd2.Exponent <= notANumberExponent) //finite + (infinity or NaN)
+            if (qd2.Exponent <= NotANumberExponent) //finite + (infinity or NaN)
             {
-                if (qd2.Exponent == zeroExponent) return qd1;
-                else return specialAdditionTable[(int)(4 + (qd1.SignificandBits >> 63)), (int)(qd2.Exponent - zeroExponent)];
+                if (qd2.Exponent == ZeroExponent) return qd1;
+                return SpecialAdditionTable[(int)(4 + (qd1.SignificandBits >> 63)), (int)(qd2.Exponent - ZeroExponent)];
             }
 
-            if ((qd1.SignificandBits ^ qd2.SignificandBits) >= highestBit) //qd1 and qd2 have different signs--use subtraction instead
+            if ((qd1.SignificandBits ^ qd2.SignificandBits) >= HighestBit) //qd1 and qd2 have different signs--use subtraction instead
             {
-                return qd1 - new Quad(qd2.SignificandBits ^ highestBit, qd2.Exponent);
+                return qd1 - new Quad(qd2.SignificandBits ^ HighestBit, qd2.Exponent);
             }
 
             Quad result;
@@ -1586,58 +1935,51 @@ namespace Quadruple
             {
                 if (qd1.Exponent >= qd2.Exponent + 64)
                     return qd1; //qd2 too small to make a difference
-                else
-                {
-                    ulong bits = (qd1.SignificandBits | highestBit) + ((qd2.SignificandBits | highestBit) >> (int)(qd1.Exponent - qd2.Exponent));
+                ulong bits = (qd1.SignificandBits | HighestBit) + ((qd2.SignificandBits | HighestBit) >> (int)(qd1.Exponent - qd2.Exponent));
 
-                    if (bits < highestBit) //this can only happen in an overflow                    
-                        result = new Quad((qd1.SignificandBits & highestBit) | (bits >> 1), qd1.Exponent + 1);
-                    else
-                        return new Quad((qd1.SignificandBits & highestBit) | (bits & ~highestBit), qd1.Exponent);
-                }
+                if (bits < HighestBit) //this can only happen in an overflow                    
+                    result = new Quad((qd1.SignificandBits & HighestBit) | (bits >> 1), qd1.Exponent + 1);
+                else
+                    return new Quad((qd1.SignificandBits & HighestBit) | (bits & ~HighestBit), qd1.Exponent);
             }
             else if (qd1.Exponent < qd2.Exponent)
             {
                 if (qd2.Exponent >= qd1.Exponent + 64)
                     return qd2; //qd1 too small to matter
-                else
-                {
-                    ulong bits = (qd2.SignificandBits | highestBit) + ((qd1.SignificandBits | highestBit) >> (int)(qd2.Exponent - qd1.Exponent));
+                ulong bits = (qd2.SignificandBits | HighestBit) + ((qd1.SignificandBits | HighestBit) >> (int)(qd2.Exponent - qd1.Exponent));
 
-                    if (bits < highestBit) //this can only happen in an overflow                    
-                        result = new Quad((qd2.SignificandBits & highestBit) | (bits >> 1), qd2.Exponent + 1);
-                    else
-                        return new Quad((qd2.SignificandBits & highestBit) | (bits & ~highestBit), qd2.Exponent);
-                }
+                if (bits < HighestBit) //this can only happen in an overflow                    
+                    result = new Quad((qd2.SignificandBits & HighestBit) | (bits >> 1), qd2.Exponent + 1);
+                else
+                    return new Quad((qd2.SignificandBits & HighestBit) | (bits & ~HighestBit), qd2.Exponent);
             }
             else //expDiff == 0
             {
                 //the MSB must have the same sign, so the MSB will become 0, and logical overflow is guaranteed in this situation (so we can shift right and increment the exponent).
-                result = new Quad(((qd1.SignificandBits + qd2.SignificandBits) >> 1) | (qd1.SignificandBits & highestBit), qd1.Exponent + 1);
+                result = new Quad(((qd1.SignificandBits + qd2.SignificandBits) >> 1) | (qd1.SignificandBits & HighestBit), qd1.Exponent + 1);
             }
 
-            if (result.Exponent > exponentUpperBound) //overflow check
-                return result.SignificandBits >= highestBit ? NegativeInfinity : PositiveInfinity;
-            else
-                return result;
+            if (result.Exponent > ExponentUpperBound) //overflow check
+                return result.SignificandBits >= HighestBit ? NegativeInfinity : PositiveInfinity;
+            return result;
         }
 
         public static Quad operator -(Quad qd1, Quad qd2)
         {
-            if (qd1.Exponent <= notANumberExponent) //infinity or NaN - something
+            if (qd1.Exponent <= NotANumberExponent) //infinity or NaN - something
             {
-                if (qd1.Exponent == zeroExponent) return -qd2;
-                else return specialSubtractionTable[(int)(qd1.Exponent - zeroExponent), qd2.Exponent > notANumberExponent ? (int)(4 + (qd2.SignificandBits >> 63)) : (int)(qd2.Exponent - zeroExponent)];
+                if (qd1.Exponent == ZeroExponent) return -qd2;
+                return SpecialSubtractionTable[(int)(qd1.Exponent - ZeroExponent), qd2.Exponent > NotANumberExponent ? (int)(4 + (qd2.SignificandBits >> 63)) : (int)(qd2.Exponent - ZeroExponent)];
             }
-            else if (qd2.Exponent <= notANumberExponent) //finite - (infinity or NaN)            
+            if (qd2.Exponent <= NotANumberExponent) //finite - (infinity or NaN)            
             {
-                if (qd2.Exponent == zeroExponent) return qd1;
-                else return specialSubtractionTable[(int)(4 + (qd1.SignificandBits >> 63)), (int)(qd2.Exponent - zeroExponent)];
+                if (qd2.Exponent == ZeroExponent) return qd1;
+                return SpecialSubtractionTable[(int)(4 + (qd1.SignificandBits >> 63)), (int)(qd2.Exponent - ZeroExponent)];
             }
 
-            if ((qd1.SignificandBits ^ qd2.SignificandBits) >= highestBit) //qd1 and qd2 have different signs--use addition instead
+            if ((qd1.SignificandBits ^ qd2.SignificandBits) >= HighestBit) //qd1 and qd2 have different signs--use addition instead
             {
-                return qd1 + new Quad(qd2.SignificandBits ^ highestBit, qd2.Exponent);
+                return qd1 + new Quad(qd2.SignificandBits ^ HighestBit, qd2.Exponent);
             }
 
             Quad result;
@@ -1645,86 +1987,81 @@ namespace Quadruple
             {
                 if (qd1.Exponent >= qd2.Exponent + 64)
                     return qd1; //qd2 too small to make a difference
-                else
-                {
-                    ulong bits = (qd1.SignificandBits | highestBit) - ((qd2.SignificandBits | highestBit) >> (int)(qd1.Exponent - qd2.Exponent));
+                ulong bits = (qd1.SignificandBits | HighestBit) - ((qd2.SignificandBits | HighestBit) >> (int)(qd1.Exponent - qd2.Exponent));
 
-                    //make sure MSB is 1                       
-                    int highestBitPos = nlz(bits);
-                    result = new Quad(((bits << highestBitPos) & ~highestBit) | (qd1.SignificandBits & highestBit), qd1.Exponent - highestBitPos);
-                }
+                //make sure MSB is 1                       
+                int highestBitPos = Nlz(bits);
+                result = new Quad(((bits << highestBitPos) & ~HighestBit) | (qd1.SignificandBits & HighestBit), qd1.Exponent - highestBitPos);
             }
             else if (qd1.Exponent < qd2.Exponent) //must subtract qd1's significand from qd2, and switch the sign
             {
                 if (qd2.Exponent >= qd1.Exponent + 64)
-                    return new Quad(qd2.SignificandBits ^ highestBit, qd2.Exponent); //qd1 too small to matter, switch sign of qd2 and return
+                    return new Quad(qd2.SignificandBits ^ HighestBit, qd2.Exponent); //qd1 too small to matter, switch sign of qd2 and return
 
-                ulong bits = (qd2.SignificandBits | highestBit) - ((qd1.SignificandBits | highestBit) >> (int)(qd2.Exponent - qd1.Exponent));
+                ulong bits = (qd2.SignificandBits | HighestBit) - ((qd1.SignificandBits | HighestBit) >> (int)(qd2.Exponent - qd1.Exponent));
 
                 //make sure MSB is 1                       
-                int highestBitPos = nlz(bits);
-                result = new Quad(((bits << highestBitPos) & ~highestBit) | (~qd2.SignificandBits & highestBit), qd2.Exponent - highestBitPos);
+                int highestBitPos = Nlz(bits);
+                result = new Quad(((bits << highestBitPos) & ~HighestBit) | (~qd2.SignificandBits & HighestBit), qd2.Exponent - highestBitPos);
             }
             else // (qd1.Exponent == qd2.Exponent)
             {
                 if (qd2.SignificandBits > qd1.SignificandBits) //must switch sign
                 {
                     ulong bits = qd2.SignificandBits - qd1.SignificandBits; //notice that we don't worry about de-implicitizing the MSB--it'd be eliminated by subtraction anyway
-                    int highestBitPos = nlz(bits);
-                    result = new Quad(((bits << highestBitPos) & ~highestBit) | (~qd2.SignificandBits & highestBit), qd2.Exponent - highestBitPos);
+                    int highestBitPos = Nlz(bits);
+                    result = new Quad(((bits << highestBitPos) & ~HighestBit) | (~qd2.SignificandBits & HighestBit), qd2.Exponent - highestBitPos);
                 }
                 else if (qd2.SignificandBits < qd1.SignificandBits) //sign remains the same
                 {
                     ulong bits = qd1.SignificandBits - qd2.SignificandBits; //notice that we don't worry about de-implicitizing the MSB--it'd be eliminated by subtraction anyway
-                    int highestBitPos = nlz(bits);
-                    result = new Quad(((bits << highestBitPos) & ~highestBit) | (qd1.SignificandBits & highestBit), qd1.Exponent - highestBitPos);
+                    int highestBitPos = Nlz(bits);
+                    result = new Quad(((bits << highestBitPos) & ~HighestBit) | (qd1.SignificandBits & HighestBit), qd1.Exponent - highestBitPos);
                 }
                 else //qd1 == qd2
                     return Zero;
             }
 
-            if (result.Exponent < exponentLowerBound) //handle underflow
+            if (result.Exponent < ExponentLowerBound) //handle underflow
                 return Zero;
-            else
-                return result;
+            return result;
         }
 
         public static Quad operator *(Quad qd1, Quad qd2)
         {
-            if (qd1.Exponent <= notANumberExponent) //zero/infinity/NaN * something            
-                return specialMultiplicationTable[(int)(qd1.Exponent - zeroExponent), qd2.Exponent > notANumberExponent ? (int)(4 + (qd2.SignificandBits >> 63)) : (int)(qd2.Exponent - zeroExponent)];
-            else if (qd2.Exponent <= notANumberExponent) //finite * zero/infinity/NaN            
-                return specialMultiplicationTable[(int)(4 + (qd1.SignificandBits >> 63)), (int)(qd2.Exponent - zeroExponent)];
+            if (qd1.Exponent <= NotANumberExponent) //zero/infinity/NaN * something            
+                return SpecialMultiplicationTable[(int)(qd1.Exponent - ZeroExponent), qd2.Exponent > NotANumberExponent ? (int)(4 + (qd2.SignificandBits >> 63)) : (int)(qd2.Exponent - ZeroExponent)];
+            if (qd2.Exponent <= NotANumberExponent) //finite * zero/infinity/NaN            
+                return SpecialMultiplicationTable[(int)(4 + (qd1.SignificandBits >> 63)), (int)(qd2.Exponent - ZeroExponent)];
 
-            ulong high1 = (qd1.SignificandBits | highestBit) >> 32; //de-implicitize the 1
-            ulong high2 = (qd2.SignificandBits | highestBit) >> 32;
+            ulong high1 = (qd1.SignificandBits | HighestBit) >> 32; //de-implicitize the 1
+            ulong high2 = (qd2.SignificandBits | HighestBit) >> 32;
 
             //because the MSB of both significands is 1, the MSB of the result will also be 1, and the product of low bits on both significands is dropped (and thus we can skip its calculation)
-            ulong significandBits = high1 * high2 + (((qd1.SignificandBits & lowWordMask) * high2) >> 32) + ((high1 * (qd2.SignificandBits & lowWordMask)) >> 32);
+            ulong significandBits = high1 * high2 + (((qd1.SignificandBits & LowWordMask) * high2) >> 32) + ((high1 * (qd2.SignificandBits & LowWordMask)) >> 32);
 
             long qd2Exponent;
             Quad result;
             if (significandBits < (1UL << 63))
             {
                 qd2Exponent = qd2.Exponent - 1 + 64;
-                result = new Quad(((qd1.SignificandBits ^ qd2.SignificandBits) & highestBit) | ((significandBits << 1) & ~highestBit), qd1.Exponent + qd2Exponent);
+                result = new Quad(((qd1.SignificandBits ^ qd2.SignificandBits) & HighestBit) | ((significandBits << 1) & ~HighestBit), qd1.Exponent + qd2Exponent);
             }
             else
             {
                 qd2Exponent = qd2.Exponent + 64;
-                result = new Quad(((qd1.SignificandBits ^ qd2.SignificandBits) & highestBit) | (significandBits & ~highestBit), qd1.Exponent + qd2Exponent);
+                result = new Quad(((qd1.SignificandBits ^ qd2.SignificandBits) & HighestBit) | (significandBits & ~HighestBit), qd1.Exponent + qd2Exponent);
             }
 
             if (qd2Exponent < 0 && result.Exponent > qd1.Exponent) //did the exponent get larger after adding something negative?
                 return Zero; //underflow
-            else if (qd2Exponent > 0 && result.Exponent < qd1.Exponent) //did the exponent get smaller when it should have gotten larger?
-                return result.SignificandBits >= highestBit ? NegativeInfinity : PositiveInfinity; //overflow
-            else if (result.Exponent < exponentLowerBound) //check for underflow
+            if (qd2Exponent > 0 && result.Exponent < qd1.Exponent) //did the exponent get smaller when it should have gotten larger?
+                return result.SignificandBits >= HighestBit ? NegativeInfinity : PositiveInfinity; //overflow
+            if (result.Exponent < ExponentLowerBound) //check for underflow
                 return Zero;
-            else if (result.Exponent > exponentUpperBound) //overflow
-                return result.SignificandBits >= highestBit ? NegativeInfinity : PositiveInfinity; //overflow
-            else
-                return result;
+            if (result.Exponent > ExponentUpperBound) //overflow
+                return result.SignificandBits >= HighestBit ? NegativeInfinity : PositiveInfinity; //overflow
+            return result;
         }
 
         public static Quad operator ++(Quad qd)
@@ -1745,7 +2082,7 @@ namespace Quadruple
         /// </summary>        
         public static bool operator ==(Quad qd1, Quad qd2)
         {
-            return (qd1.SignificandBits == qd2.SignificandBits && qd1.Exponent == qd2.Exponent && qd1.Exponent != notANumberExponent);// || (qd1.Exponent == long.MinValue && qd2.Exponent == long.MinValue);
+            return (qd1.SignificandBits == qd2.SignificandBits && qd1.Exponent == qd2.Exponent && qd1.Exponent != NotANumberExponent);// || (qd1.Exponent == long.MinValue && qd2.Exponent == long.MinValue);
         }
 
         /// <summary>
@@ -1754,24 +2091,24 @@ namespace Quadruple
         /// </summary>        
         public static bool operator !=(Quad qd1, Quad qd2)
         {
-            return (qd1.SignificandBits != qd2.SignificandBits || qd1.Exponent != qd2.Exponent || qd1.Exponent == notANumberExponent);// && (qd1.Exponent != long.MinValue || qd2.Exponent != long.MinValue);
+            return (qd1.SignificandBits != qd2.SignificandBits || qd1.Exponent != qd2.Exponent || qd1.Exponent == NotANumberExponent);// && (qd1.Exponent != long.MinValue || qd2.Exponent != long.MinValue);
         }
 
         public static bool operator >(Quad qd1, Quad qd2)
         {
-            if (qd1.Exponent <= notANumberExponent) //zero/infinity/NaN * something            
-                return specialGreaterThanTable[(int)(qd1.Exponent - zeroExponent), qd2.Exponent > notANumberExponent ? (int)(4 + (qd2.SignificandBits >> 63)) : (int)(qd2.Exponent - zeroExponent)];
-            else if (qd2.Exponent <= notANumberExponent) //finite * zero/infinity/NaN            
-                return specialGreaterThanTable[(int)(4 + (qd1.SignificandBits >> 63)), (int)(qd2.Exponent - zeroExponent)];
+            if (qd1.Exponent <= NotANumberExponent) //zero/infinity/NaN * something            
+                return SpecialGreaterThanTable[(int)(qd1.Exponent - ZeroExponent), qd2.Exponent > NotANumberExponent ? (int)(4 + (qd2.SignificandBits >> 63)) : (int)(qd2.Exponent - ZeroExponent)];
+            if (qd2.Exponent <= NotANumberExponent) //finite * zero/infinity/NaN            
+                return SpecialGreaterThanTable[(int)(4 + (qd1.SignificandBits >> 63)), (int)(qd2.Exponent - ZeroExponent)];
 
             //There is probably a faster way to accomplish this by cleverly exploiting signed longs
-            switch ((qd1.SignificandBits & highestBit) | ((qd2.SignificandBits & highestBit) >> 1))
+            switch ((qd1.SignificandBits & HighestBit) | ((qd2.SignificandBits & HighestBit) >> 1))
             {
-                case highestBit: //qd1 is negative, qd2 positive
+                case HighestBit: //qd1 is negative, qd2 positive
                     return false;
-                case secondHighestBit: //qd1 positive, qd2 negative
+                case SecondHighestBit: //qd1 positive, qd2 negative
                     return true;
-                case highestBit | secondHighestBit: //both negative
+                case HighestBit | SecondHighestBit: //both negative
                     return qd1.Exponent < qd2.Exponent || (qd1.Exponent == qd2.Exponent && qd1.SignificandBits < qd2.SignificandBits);
                 default: //both positive
                     return qd1.Exponent > qd2.Exponent || (qd1.Exponent == qd2.Exponent && qd1.SignificandBits > qd2.SignificandBits);
@@ -1780,18 +2117,18 @@ namespace Quadruple
 
         public static bool operator <(Quad qd1, Quad qd2)
         {
-            if (qd1.Exponent <= notANumberExponent) //zero/infinity/NaN * something            
-                return specialLessThanTable[(int)(qd1.Exponent - zeroExponent), qd2.Exponent > notANumberExponent ? (int)(4 + (qd2.SignificandBits >> 63)) : (int)(qd2.Exponent - zeroExponent)];
-            else if (qd2.Exponent <= notANumberExponent) //finite * zero/infinity/NaN            
-                return specialLessThanTable[(int)(4 + (qd1.SignificandBits >> 63)), (int)(qd2.Exponent - zeroExponent)];
+            if (qd1.Exponent <= NotANumberExponent) //zero/infinity/NaN * something            
+                return SpecialLessThanTable[(int)(qd1.Exponent - ZeroExponent), qd2.Exponent > NotANumberExponent ? (int)(4 + (qd2.SignificandBits >> 63)) : (int)(qd2.Exponent - ZeroExponent)];
+            if (qd2.Exponent <= NotANumberExponent) //finite * zero/infinity/NaN            
+                return SpecialLessThanTable[(int)(4 + (qd1.SignificandBits >> 63)), (int)(qd2.Exponent - ZeroExponent)];
 
-            switch ((qd1.SignificandBits & highestBit) | ((qd2.SignificandBits & highestBit) >> 1))
+            switch ((qd1.SignificandBits & HighestBit) | ((qd2.SignificandBits & HighestBit) >> 1))
             {
-                case highestBit: //qd1 is negative, qd2 positive
+                case HighestBit: //qd1 is negative, qd2 positive
                     return true;
-                case secondHighestBit: //qd1 positive, qd2 negative
+                case SecondHighestBit: //qd1 positive, qd2 negative
                     return false;
-                case highestBit | secondHighestBit: //both negative
+                case HighestBit | SecondHighestBit: //both negative
                     return qd1.Exponent > qd2.Exponent || (qd1.Exponent == qd2.Exponent && qd1.SignificandBits > qd2.SignificandBits);
                 default: //both positive
                     return qd1.Exponent < qd2.Exponent || (qd1.Exponent == qd2.Exponent && qd1.SignificandBits < qd2.SignificandBits);
@@ -1801,18 +2138,18 @@ namespace Quadruple
 
         public static bool operator >=(Quad qd1, Quad qd2)
         {
-            if (qd1.Exponent <= notANumberExponent) //zero/infinity/NaN * something            
-                return specialGreaterEqualThanTable[(int)(qd1.Exponent - zeroExponent), qd2.Exponent > notANumberExponent ? (int)(4 + (qd2.SignificandBits >> 63)) : (int)(qd2.Exponent - zeroExponent)];
-            else if (qd2.Exponent <= notANumberExponent) //finite * zero/infinity/NaN            
-                return specialGreaterEqualThanTable[(int)(4 + (qd1.SignificandBits >> 63)), (int)(qd2.Exponent - zeroExponent)];
+            if (qd1.Exponent <= NotANumberExponent) //zero/infinity/NaN * something            
+                return SpecialGreaterEqualThanTable[(int)(qd1.Exponent - ZeroExponent), qd2.Exponent > NotANumberExponent ? (int)(4 + (qd2.SignificandBits >> 63)) : (int)(qd2.Exponent - ZeroExponent)];
+            if (qd2.Exponent <= NotANumberExponent) //finite * zero/infinity/NaN            
+                return SpecialGreaterEqualThanTable[(int)(4 + (qd1.SignificandBits >> 63)), (int)(qd2.Exponent - ZeroExponent)];
 
-            switch ((qd1.SignificandBits & highestBit) | ((qd2.SignificandBits & highestBit) >> 1))
+            switch ((qd1.SignificandBits & HighestBit) | ((qd2.SignificandBits & HighestBit) >> 1))
             {
-                case highestBit: //qd1 is negative, qd2 positive
+                case HighestBit: //qd1 is negative, qd2 positive
                     return false;
-                case secondHighestBit: //qd1 positive, qd2 negative
+                case SecondHighestBit: //qd1 positive, qd2 negative
                     return true;
-                case highestBit | secondHighestBit: //both negative
+                case HighestBit | SecondHighestBit: //both negative
                     return qd1.Exponent < qd2.Exponent || (qd1.Exponent == qd2.Exponent && qd1.SignificandBits <= qd2.SignificandBits);
                 default: //both positive
                     return qd1.Exponent > qd2.Exponent || (qd1.Exponent == qd2.Exponent && qd1.SignificandBits >= qd2.SignificandBits);
@@ -1821,18 +2158,18 @@ namespace Quadruple
 
         public static bool operator <=(Quad qd1, Quad qd2)
         {
-            if (qd1.Exponent <= notANumberExponent) //zero/infinity/NaN * something            
-                return specialLessEqualThanTable[(int)(qd1.Exponent - zeroExponent), qd2.Exponent > notANumberExponent ? (int)(4 + (qd2.SignificandBits >> 63)) : (int)(qd2.Exponent - zeroExponent)];
-            else if (qd2.Exponent <= notANumberExponent) //finite * zero/infinity/NaN            
-                return specialLessEqualThanTable[(int)(4 + (qd1.SignificandBits >> 63)), (int)(qd2.Exponent - zeroExponent)];
+            if (qd1.Exponent <= NotANumberExponent) //zero/infinity/NaN * something            
+                return SpecialLessEqualThanTable[(int)(qd1.Exponent - ZeroExponent), qd2.Exponent > NotANumberExponent ? (int)(4 + (qd2.SignificandBits >> 63)) : (int)(qd2.Exponent - ZeroExponent)];
+            if (qd2.Exponent <= NotANumberExponent) //finite * zero/infinity/NaN            
+                return SpecialLessEqualThanTable[(int)(4 + (qd1.SignificandBits >> 63)), (int)(qd2.Exponent - ZeroExponent)];
 
-            switch ((qd1.SignificandBits & highestBit) | ((qd2.SignificandBits & highestBit) >> 1))
+            switch ((qd1.SignificandBits & HighestBit) | ((qd2.SignificandBits & HighestBit) >> 1))
             {
-                case highestBit: //qd1 is negative, qd2 positive
+                case HighestBit: //qd1 is negative, qd2 positive
                     return true;
-                case secondHighestBit: //qd1 positive, qd2 negative
+                case SecondHighestBit: //qd1 positive, qd2 negative
                     return false;
-                case highestBit | secondHighestBit: //both negative
+                case HighestBit | SecondHighestBit: //both negative
                     return qd1.Exponent > qd2.Exponent || (qd1.Exponent == qd2.Exponent && qd1.SignificandBits >= qd2.SignificandBits);
                 default: //both positive
                     return qd1.Exponent < qd2.Exponent || (qd1.Exponent == qd2.Exponent && qd1.SignificandBits <= qd2.SignificandBits);
@@ -1848,11 +2185,11 @@ namespace Quadruple
         /// <returns></returns>
         public static Quad Parse(string number)
         {
-            if (number.Equals(specialStringTable[1], StringComparison.OrdinalIgnoreCase))
+            if (number.Equals(SpecialStringTable[1], StringComparison.OrdinalIgnoreCase))
                 return PositiveInfinity;
-            else if (number.Equals(specialStringTable[2], StringComparison.OrdinalIgnoreCase))
+            if (number.Equals(SpecialStringTable[2], StringComparison.OrdinalIgnoreCase))
                 return NegativeInfinity;
-            else if (number.Equals(specialStringTable[3], StringComparison.OrdinalIgnoreCase))
+            if (number.Equals(SpecialStringTable[3], StringComparison.OrdinalIgnoreCase))
                 return NaN;
 
             //Can piggyback on BigInteger's parser for this, but this is inefficient.
@@ -1879,7 +2216,7 @@ namespace Quadruple
 
                 // we implicitly multiplied the stuff right of the decimal point by 10^(right.length) to get an integer;
                 // now we must reverse that and add this quantity to our results.
-                result += fractional * (Quad.Pow(new Quad(10L, 0), -right.Length));
+                result += fractional * (Pow(new Quad(10L, 0), -right.Length));
             }
 
             return negative ? -result : result;
@@ -1894,15 +2231,12 @@ namespace Quadruple
         /// <returns></returns>
         public static Quad Truncate(Quad value)
         {
-            if (value.Exponent <= notANumberExponent) return value;
+            if (value.Exponent <= NotANumberExponent) return value;
 
             if (value.Exponent <= -64) return Zero;
-            else if (value.Exponent >= 0) return value;
-            else
-            {
-                //clear least significant "-value.exponent" bits that come after the binary point by shifting
-                return new Quad((value.SignificandBits >> (int)(-value.Exponent)) << (int)(-value.Exponent), value.Exponent);
-            }
+            if (value.Exponent >= 0) return value;
+            //clear least significant "-value.exponent" bits that come after the binary point by shifting
+            return new Quad((value.SignificandBits >> (int)(-value.Exponent)) << (int)(-value.Exponent), value.Exponent);
         }
 
         /// <summary>
@@ -1913,23 +2247,19 @@ namespace Quadruple
         public static Quad Fraction(Quad value)
         {
             if (value.Exponent >= 0) return Zero; //no fraction
-            else if (value.Exponent <= -64)
+            if (value.Exponent <= -64)
             {
-                if (value.Exponent == infinityExponent || value.Exponent == negativeInfinityExponent)
+                if (value.Exponent == InfinityExponent || value.Exponent == NegativeInfinityExponent)
                     return NaN;
-                else
-                    return value; //all fraction (or zero or NaN)
+                return value; //all fraction (or zero or NaN)
             }
-            else
-            {
-                //clear most significant 64+value.exponent bits before the binary point
-                ulong bits = (value.SignificandBits << (int)(64 + value.Exponent)) >> (int)(64 + value.Exponent);
-                if (bits == 0) return Zero; //value is an integer
+            //clear most significant 64+value.exponent bits before the binary point
+            ulong bits = (value.SignificandBits << (int)(64 + value.Exponent)) >> (int)(64 + value.Exponent);
+            if (bits == 0) return Zero; //value is an integer
 
-                int shift = nlz(bits); //renormalize                
+            int shift = Nlz(bits); //renormalize                
 
-                return new Quad((~highestBit & (bits << shift)) | (highestBit & value.SignificandBits), value.Exponent - shift);
-            }
+            return new Quad((~HighestBit & (bits << shift)) | (HighestBit & value.SignificandBits), value.Exponent - shift);
         }
 
         /// <summary>
@@ -1939,24 +2269,24 @@ namespace Quadruple
         /// <returns></returns>
         public static double Log2(Quad value)
         {
-            if (value.SignificandBits >= highestBit) return double.NaN;
-            if (value.Exponent <= notANumberExponent) return specialDoubleLogTable[(int)(value.Exponent - zeroExponent)];
+            if (value.SignificandBits >= HighestBit) return double.NaN;
+            if (value.Exponent <= NotANumberExponent) return SpecialDoubleLogTable[(int)(value.Exponent - ZeroExponent)];
 
-            return Math.Log(value.SignificandBits | highestBit, 2) + value.Exponent;
+            return Math.Log(value.SignificandBits | HighestBit, 2) + value.Exponent;
         }
 
-        /// <summary>
-        /// Calculates the natural log (base e) of a Quad.
-        /// </summary>
-        /// <param name="value"></param>
-        /// <returns></returns>
-        public static double Log(Quad value)
-        {
-            if (value.SignificandBits >= highestBit) return double.NaN;
-            if (value.Exponent <= notANumberExponent) return specialDoubleLogTable[(int)(value.Exponent - zeroExponent)];
+        ///// <summary>
+        ///// Calculates the natural log (base e) of a Quad.
+        ///// </summary>
+        ///// <param name="value"></param>
+        ///// <returns></returns>
+        //public static double Log(Quad value)
+        //{
+        //    if (value.SignificandBits >= highestBit) return double.NaN;
+        //    if (value.Exponent <= notANumberExponent) return specialDoubleLogTable[(int)(value.Exponent - zeroExponent)];
 
-            return Math.Log(value.SignificandBits | highestBit) + value.Exponent * 0.69314718055994530941723212145818;
-        }
+        //    return Math.Log(value.SignificandBits | highestBit) + value.Exponent * 0.69314718055994530941723212145818;
+        //}
 
         /// <summary>
         /// Raise a Quad to a given exponent.  Pow returns 1 for x^0 for all x >= 0.  An exception is thrown
@@ -1969,23 +2299,23 @@ namespace Quadruple
         /// <remarks>Internally, Pow uses Math.Pow.  This effectively limits the precision of the output to a double's 53 bits.</remarks>
         public static Quad Pow(Quad value, double exponent)
         {
-            if (value.Exponent <= notANumberExponent)
+            if (value.Exponent <= NotANumberExponent)
             {
                 //check NaN
-                if (value.Exponent == notANumberExponent || double.IsNaN(exponent)) return NaN;
+                if (value.Exponent == NotANumberExponent || double.IsNaN(exponent)) return NaN;
 
                 //anything ^ 0 == 1
-                if (exponent == 0) return One;
+                if (Math.Abs(exponent) < double.Epsilon) return One;
 
                 //0 ^ y
-                if (value.Exponent == zeroExponent)
+                if (value.Exponent == ZeroExponent)
                     return exponent < 0 ? PositiveInfinity : Zero;
 
                 //PositiveInfinity ^ y
-                if (value.Exponent == infinityExponent)
+                if (value.Exponent == InfinityExponent)
                     return exponent < 0 ? Zero : PositiveInfinity;
 
-                if (value.Exponent == negativeInfinityExponent)
+                if (value.Exponent == NegativeInfinityExponent)
                     return Math.Pow(double.NegativeInfinity, exponent); //lots of weird special cases
             }
 
@@ -1994,15 +2324,14 @@ namespace Quadruple
             {
                 if (value < -2)
                     return Math.Pow(-2, exponent);
-                else if (value > 2)
+                if (value > 2)
                     return Math.Pow(2, exponent);
-                else
-                    return Math.Pow((double)value, exponent);
+                return Math.Pow((double)value, exponent);
             }
 
-            if (exponent == 0) return One;
+            if (Math.Abs(exponent) < double.Epsilon) return One;
 
-            if (value.SignificandBits >= highestBit && exponent % 1 != 0)
+            if (value.SignificandBits >= HighestBit && Math.Abs(exponent % 1) > double.Epsilon)
                 return NaN; //result is an imaginary number--negative value raised to non-integer exponent
 
             double resultSignificand = Math.Pow((double)new Quad(value.SignificandBits, -63), exponent);
@@ -2010,7 +2339,7 @@ namespace Quadruple
 
             resultSignificand *= Math.Pow(2, resultExponent % 1); //push the fractional exponent into the significand
 
-            Quad result = (Quad)resultSignificand;
+            Quad result = resultSignificand;
             result.Exponent += (long)Math.Truncate(resultExponent);
 
             return result;
@@ -2018,60 +2347,56 @@ namespace Quadruple
 
         public static Quad Max(Quad qd1, Quad qd2)
         {
-            if (qd1.Exponent == notANumberExponent) return NaN;
-            else return qd1 > qd2 ? qd1 : qd2;
+            if (qd1.Exponent == NotANumberExponent) return NaN;
+            return qd1 > qd2 ? qd1 : qd2;
         }
 
         public static Quad Min(Quad qd1, Quad qd2)
         {
-            if (qd1.Exponent == notANumberExponent) return NaN;
-            else return qd1 < qd2 ? qd1 : qd2;
+            if (qd1.Exponent == NotANumberExponent) return NaN;
+            return qd1 < qd2 ? qd1 : qd2;
         }
 
         public static Quad Abs(Quad qd)
         {
-            if (qd.Exponent == negativeInfinityExponent) return PositiveInfinity;
-            else return new Quad(qd.SignificandBits & ~highestBit, qd.Exponent); //clear the sign bit
+            if (qd.Exponent == NegativeInfinityExponent) return PositiveInfinity;
+            return new Quad(qd.SignificandBits & ~HighestBit, qd.Exponent); //clear the sign bit
         }
 
         public static int Sign(Quad qd)
         {
-            if (qd.Exponent >= exponentLowerBound) //regular number
+            if (qd.Exponent >= ExponentLowerBound) //regular number
             {
-                if ((qd.SignificandBits & highestBit) == 0) //positive?
+                if ((qd.SignificandBits & HighestBit) == 0) //positive?
                     return 1;
-                else
-                    return -1;
+                return -1;
             }
-            else
-            {
-                if (qd.Exponent == zeroExponent) return 0;
-                else if (qd.Exponent == infinityExponent) return 1;
-                else if (qd.Exponent == negativeInfinityExponent) return -1;
-                else throw new ArithmeticException("Cannot find the Sign of a Quad that is NaN");
-            }
+            if (qd.Exponent == ZeroExponent) return 0;
+            if (qd.Exponent == InfinityExponent) return 1;
+            if (qd.Exponent == NegativeInfinityExponent) return -1;
+            throw new ArithmeticException("Cannot find the Sign of a Quad that is NaN");
         }
         #endregion
 
         #region IsInfinity/IsNaN static test methods
         public static bool IsNaN(Quad quad)
         {
-            return quad.Exponent == notANumberExponent;
+            return quad.Exponent == NotANumberExponent;
         }
 
         public static bool IsInfinity(Quad quad)
         {
-            return quad.Exponent == infinityExponent || quad.Exponent == negativeInfinityExponent;
+            return quad.Exponent == InfinityExponent || quad.Exponent == NegativeInfinityExponent;
         }
 
         public static bool IsPositiveInfinity(Quad quad)
         {
-            return quad.Exponent == infinityExponent;
+            return quad.Exponent == InfinityExponent;
         }
 
         public static bool IsNegativeInfinity(Quad quad)
         {
-            return quad.Exponent == negativeInfinityExponent;
+            return quad.Exponent == NegativeInfinityExponent;
         }
         #endregion
 
@@ -2088,31 +2413,27 @@ namespace Quadruple
             if (value <= ulong.MaxValue) //easy
             {
                 ulong bits = (ulong)value;
-                int shift = nlz(bits);
-                return new Quad((bits << shift) & ~highestBit | (positive ? 0 : highestBit), -shift);
+                int shift = Nlz(bits);
+                return new Quad((bits << shift) & ~HighestBit | (positive ? 0 : HighestBit), -shift);
             }
-            else //can only keep some of the bits
-            {
-                byte[] bytes = value.ToByteArray(); //least significant byte is first
+            byte[] bytes = value.ToByteArray(); //least significant byte is first
 
-                if (bytes[bytes.Length - 1] == 0) //appended when the MSB is set to differentiate from negative values
-                    return new Quad((positive ? 0 : highestBit) | (~highestBit & ((ulong)bytes[bytes.Length - 2] << 56 | (ulong)bytes[bytes.Length - 3] << 48 | (ulong)bytes[bytes.Length - 4] << 40 | (ulong)bytes[bytes.Length - 5] << 32 | (ulong)bytes[bytes.Length - 6] << 24 | (ulong)bytes[bytes.Length - 7] << 16 | (ulong)bytes[bytes.Length - 8] << 8 | (ulong)bytes[bytes.Length - 9])), (bytes.Length - 9) * 8);
-                else //shift bits up
-                {
-                    ulong bits = (ulong)bytes[bytes.Length - 1] << 56 | (ulong)bytes[bytes.Length - 2] << 48 | (ulong)bytes[bytes.Length - 3] << 40 | (ulong)bytes[bytes.Length - 4] << 32 | (ulong)bytes[bytes.Length - 5] << 24 | (ulong)bytes[bytes.Length - 6] << 16 | (ulong)bytes[bytes.Length - 7] << 8 | (ulong)bytes[bytes.Length - 8];
-                    int shift = nlz(bits);
-                    bits = (bits << shift) | (((ulong)bytes[bytes.Length - 9]) >> (8 - shift));
-                    return new Quad((positive ? 0 : highestBit) | (~highestBit & bits), (bytes.Length - 8) * 8 - shift);
-                }
+            if (bytes[bytes.Length - 1] == 0) //appended when the MSB is set to differentiate from negative values
+                return new Quad((positive ? 0 : HighestBit) | (~HighestBit & ((ulong)bytes[bytes.Length - 2] << 56 | (ulong)bytes[bytes.Length - 3] << 48 | (ulong)bytes[bytes.Length - 4] << 40 | (ulong)bytes[bytes.Length - 5] << 32 | (ulong)bytes[bytes.Length - 6] << 24 | (ulong)bytes[bytes.Length - 7] << 16 | (ulong)bytes[bytes.Length - 8] << 8 | bytes[bytes.Length - 9])), (bytes.Length - 9) * 8);
+            {
+                ulong bits = (ulong)bytes[bytes.Length - 1] << 56 | (ulong)bytes[bytes.Length - 2] << 48 | (ulong)bytes[bytes.Length - 3] << 40 | (ulong)bytes[bytes.Length - 4] << 32 | (ulong)bytes[bytes.Length - 5] << 24 | (ulong)bytes[bytes.Length - 6] << 16 | (ulong)bytes[bytes.Length - 7] << 8 | bytes[bytes.Length - 8];
+                int shift = Nlz(bits);
+                bits = (bits << shift) | (((ulong)bytes[bytes.Length - 9]) >> (8 - shift));
+                return new Quad((positive ? 0 : HighestBit) | (~HighestBit & bits), (bytes.Length - 8) * 8 - shift);
             }
         }
 
         public static explicit operator System.Numerics.BigInteger(Quad value)
         {
-            if (value.Exponent == negativeInfinityExponent
-                || value.Exponent == infinityExponent)
+            if (value.Exponent == NegativeInfinityExponent
+                || value.Exponent == InfinityExponent)
                 throw new InvalidCastException("Cannot cast infinity to BigInteger");
-            else if (value.Exponent == notANumberExponent)
+            if (value.Exponent == NotANumberExponent)
                 throw new InvalidCastException("Cannot cast NaN to BigInteger");
 
             if (value.Exponent <= -64) //fractional or zero
@@ -2120,48 +2441,46 @@ namespace Quadruple
 
             if (value.Exponent < 0)
             {
-                if ((value.SignificandBits & highestBit) == highestBit)
+                if ((value.SignificandBits & HighestBit) == HighestBit)
                     return -new System.Numerics.BigInteger((value.SignificandBits) >> ((int)-value.Exponent));
-                else
-                    return new System.Numerics.BigInteger((value.SignificandBits | highestBit) >> ((int)-value.Exponent));
+                return new System.Numerics.BigInteger((value.SignificandBits | HighestBit) >> ((int)-value.Exponent));
             }
 
             if (value.Exponent > int.MaxValue) //you can presumably get a BigInteger bigger than 2^int.MaxValue bits, but you probably don't want to (it'd be several hundred MB).
                 throw new InvalidCastException("BigIntegers do not permit left-shifts by more than int.MaxValue bits.  Since the exponent of the quad is more than this, the conversion cannot be performed.");
 
-            if ((value.SignificandBits & highestBit) == highestBit) //negative number?
+            if ((value.SignificandBits & HighestBit) == HighestBit) //negative number?
                 return -(new System.Numerics.BigInteger(value.SignificandBits) << (int)value.Exponent);
-            else
-                return (new System.Numerics.BigInteger(value.SignificandBits | highestBit) << (int)value.Exponent);
+            return (new System.Numerics.BigInteger(value.SignificandBits | HighestBit) << (int)value.Exponent);
         }
 
         public static explicit operator ulong(Quad value)
         {
-            if (value.Exponent == negativeInfinityExponent
-                || value.Exponent == infinityExponent)
+            if (value.Exponent == NegativeInfinityExponent
+                || value.Exponent == InfinityExponent)
                 throw new InvalidCastException("Cannot cast infinity to 64-bit unsigned integer");
-            else if (value.Exponent == notANumberExponent)
+            if (value.Exponent == NotANumberExponent)
                 throw new InvalidCastException("Cannot cast NaN to 64-bit unsigned integer");
 
-            if (value.SignificandBits >= highestBit) throw new ArgumentOutOfRangeException("Cannot convert negative value to ulong");
+            if (value.SignificandBits >= HighestBit) throw new ArgumentOutOfRangeException(nameof(value));
 
             if (value.Exponent > 0)
                 throw new InvalidCastException("Value too large to fit in 64-bit unsigned integer");
 
             if (value.Exponent <= -64) return 0;
 
-            return (highestBit | value.SignificandBits) >> (int)(-value.Exponent);
+            return (HighestBit | value.SignificandBits) >> (int)(-value.Exponent);
         }
 
         public static explicit operator long(Quad value)
         {
-            if (value.Exponent == negativeInfinityExponent
-                || value.Exponent == infinityExponent)
+            if (value.Exponent == NegativeInfinityExponent
+                || value.Exponent == InfinityExponent)
                 throw new InvalidCastException("Cannot cast infinity to 64-bit signed integer");
-            else if (value.Exponent == notANumberExponent)
+            if (value.Exponent == NotANumberExponent)
                 throw new InvalidCastException("Cannot cast NaN to 64-bit signed integer");
 
-            if (value.SignificandBits == highestBit && value.Exponent == 0) //corner case
+            if (value.SignificandBits == HighestBit && value.Exponent == 0) //corner case
                 return long.MinValue;
 
             if (value.Exponent >= 0)
@@ -2169,39 +2488,36 @@ namespace Quadruple
 
             if (value.Exponent <= -64) return 0;
 
-            if (value.SignificandBits >= highestBit) //negative
+            if (value.SignificandBits >= HighestBit) //negative
                 return -(long)(value.SignificandBits >> (int)(-value.Exponent));
-            else
-                return (long)((value.SignificandBits | highestBit) >> (int)(-value.Exponent));
+            return (long)((value.SignificandBits | HighestBit) >> (int)(-value.Exponent));
         }
 
         public static unsafe explicit operator double(Quad value)
         {
             switch (value.Exponent)
             {
-                case zeroExponent: return 0;
-                case infinityExponent: return double.PositiveInfinity;
-                case negativeInfinityExponent: return double.NegativeInfinity;
-                case notANumberExponent: return double.NaN;
+                case ZeroExponent: return 0;
+                case InfinityExponent: return double.PositiveInfinity;
+                case NegativeInfinityExponent: return double.NegativeInfinity;
+                case NotANumberExponent: return double.NaN;
             }
 
             if (value.Exponent <= -1086)
             {
                 if (value.Exponent > -1086 - 52) //can create subnormal double value
                 {
-                    ulong bits = (value.SignificandBits & highestBit) | ((value.SignificandBits | highestBit) >> (int)(-value.Exponent - 1086 + 12));
+                    ulong bits = (value.SignificandBits & HighestBit) | ((value.SignificandBits | HighestBit) >> (int)(-value.Exponent - 1086 + 12));
                     return *((double*)&bits);
                 }
-                else
-                    return 0;
+                return 0;
             }
-            else
             {
 
                 ulong bits = (ulong)(value.Exponent + 1086);
-                if (bits >= 0x7ffUL) return value.SignificandBits >= highestBit ? double.NegativeInfinity : double.PositiveInfinity; //too large
+                if (bits >= 0x7ffUL) return value.SignificandBits >= HighestBit ? double.NegativeInfinity : double.PositiveInfinity; //too large
 
-                bits = (value.SignificandBits & highestBit) | (bits << 52) | (value.SignificandBits & (~highestBit)) >> 11;
+                bits = (value.SignificandBits & HighestBit) | (bits << 52) | (value.SignificandBits & (~HighestBit)) >> 11;
 
                 return *((double*)&bits);
             }
@@ -2216,8 +2532,8 @@ namespace Quadruple
         public static explicit operator Quad(ulong value)
         {
             if (value == 0) return Zero;
-            int firstSetPosition = nlz(value);
-            return new Quad((value << firstSetPosition) & ~highestBit, -firstSetPosition);
+            int firstSetPosition = Nlz(value);
+            return new Quad((value << firstSetPosition) & ~HighestBit, -firstSetPosition);
         }
 
         public static implicit operator Quad(long value)
@@ -2239,13 +2555,11 @@ namespace Quadruple
             {
                 if (mantissa == 0)
                 {
-                    if (bits >= highestBit) //sign bit set?
+                    if (bits >= HighestBit) //sign bit set?
                         return NegativeInfinity;
-                    else
-                        return PositiveInfinity;
+                    return PositiveInfinity;
                 }
-                else
-                    return NaN;
+                return NaN;
             }
 
             // Subnormal numbers; exponent is effectively one higher,
@@ -2255,7 +2569,7 @@ namespace Quadruple
                 if (mantissa == 0) return Zero;
                 exponent++;
 
-                int firstSetPosition = nlz(mantissa);
+                int firstSetPosition = Nlz(mantissa);
                 mantissa <<= firstSetPosition;
                 exponent -= firstSetPosition;
             }
@@ -2267,7 +2581,7 @@ namespace Quadruple
 
             exponent -= 1075;
 
-            return new Quad((highestBit & bits) | mantissa, exponent);
+            return new Quad((HighestBit & bits) | mantissa, exponent);
         }
         #endregion
 
@@ -2279,7 +2593,7 @@ namespace Quadruple
         /// <returns></returns>
         public override string ToString()
         {
-            return ToString(QuadrupleStringFormat.ScientificApproximate);
+            return ToString(QuadrupleStringFormat.ScientificExact);
         }
 
         /// <summary>
@@ -2295,28 +2609,28 @@ namespace Quadruple
         /// </remarks>
         public string ToString(QuadrupleStringFormat format)
         {
-            if (Exponent <= notANumberExponent) return specialStringTable[(int)(Exponent - zeroExponent)];
+            if (Exponent <= NotANumberExponent) return SpecialStringTable[(int)(Exponent - ZeroExponent)];
 
             switch (format)
             {
                 case QuadrupleStringFormat.HexExponential:
-                    if (SignificandBits >= highestBit)
+                    if (SignificandBits >= HighestBit)
                         return "-" + SignificandBits.ToString("x") + "*2^" + (Exponent >= 0 ? Exponent.ToString("x") : "-" + (-Exponent).ToString("x"));
                     else
-                        return (SignificandBits | highestBit).ToString("x") + "*2^" + (Exponent >= 0 ? Exponent.ToString("x") : "-" + (-Exponent).ToString("x"));
+                        return (SignificandBits | HighestBit).ToString("x") + "*2^" + (Exponent >= 0 ? Exponent.ToString("x") : "-" + (-Exponent).ToString("x"));
 
                 case QuadrupleStringFormat.DecimalExponential:
-                    if (SignificandBits >= highestBit)
+                    if (SignificandBits >= HighestBit)
                         return "-" + SignificandBits.ToString() + "*2^" + Exponent.ToString();
                     else
-                        return (SignificandBits | highestBit).ToString() + "*2^" + Exponent.ToString();
+                        return (SignificandBits | HighestBit).ToString() + "*2^" + Exponent.ToString();
 
                 case QuadrupleStringFormat.ScientificApproximate:
                     if (Exponent >= -1022 && Exponent <= 1023) //can be represented as double (albeit with a precision loss)
                         return ((double)this).ToString(System.Globalization.CultureInfo.InvariantCulture);
 
                     double dVal = (double)new Quad(SignificandBits, -61);
-                    double dExp = base2to10Multiplier * (Exponent + 61);
+                    double dExp = Base2To10Multiplier * (Exponent + 61);
 
                     string sign = "";
                     if (dVal < 0)
@@ -2340,22 +2654,17 @@ namespace Quadruple
                         string dValString = dVal.ToString(System.Globalization.CultureInfo.InvariantCulture);
                         if (dValString[1] != '.')
                             goto returnScientific; //unexpected formatting; use default behavior.
-                        else
-                            return sign + "0." + new string('0', (int)((-iExp) - 1)) + dVal.ToString(System.Globalization.CultureInfo.InvariantCulture).Remove(1, 1);
+                        return sign + "0." + new string('0', (int)((-iExp) - 1)) + dVal.ToString(System.Globalization.CultureInfo.InvariantCulture).Remove(1, 1);
                     }
                     else if (iExp >= 0 && iExp <= 10)
                     {
                         string dValString = dVal.ToString(System.Globalization.CultureInfo.InvariantCulture);
                         if (dValString[1] != '.')
                             goto returnScientific; //unexpected formating; use default behavior.
-                        else
-                        {
-                            dValString = dValString.Remove(1, 1);
-                            if (iExp < dValString.Length - 1)
-                                return sign + dValString.Substring(0, 1 + (int)iExp) + "." + dValString.Substring(1 + (int)iExp);
-                            else
-                                return sign + dValString + new string('0', (int)iExp - (dValString.Length - 1)) + ".0";
-                        }
+                        dValString = dValString.Remove(1, 1);
+                        if (iExp < dValString.Length - 1)
+                            return sign + dValString.Substring(0, 1 + (int)iExp) + "." + dValString.Substring(1 + (int)iExp);
+                        return sign + dValString + new string('0', (int)iExp - (dValString.Length - 1)) + ".0";
                     }
 
                     returnScientific:
@@ -2363,8 +2672,8 @@ namespace Quadruple
 
                 case QuadrupleStringFormat.ScientificExact:
                     if (this == Zero) return "0";
-                    if (Fraction(this) == Zero && this.Exponent <= 0) //integer value that we can output directly
-                        return (this.SignificandBits >= highestBit ? "-" : "") + ((this.SignificandBits | highestBit) >> (int)(-this.Exponent)).ToString();
+                    if (Fraction(this) == Zero && Exponent <= 0) //integer value that we can output directly
+                        return (SignificandBits >= HighestBit ? "-" : "") + ((SignificandBits | HighestBit) >> (int)(-Exponent)).ToString();
 
                     Quad absValue = Abs(this);
 
@@ -2373,29 +2682,29 @@ namespace Quadruple
                     {
                         while (true)
                         {
-                            if (absValue < en18)
+                            if (absValue < En18)
                             {
-                                absValue.Multiply(e19);
+                                absValue.Multiply(E19);
                                 e -= 19;
                             }
-                            else if (absValue < en9)
+                            else if (absValue < En9)
                             {
-                                absValue.Multiply(e10);
+                                absValue.Multiply(E10);
                                 e -= 10;
                             }
-                            else if (absValue < en4)
+                            else if (absValue < En4)
                             {
-                                absValue.Multiply(e5);
+                                absValue.Multiply(E5);
                                 e -= 5;
                             }
-                            else if (absValue < en2)
+                            else if (absValue < En2)
                             {
-                                absValue.Multiply(e3);
+                                absValue.Multiply(E3);
                                 e -= 3;
                             }
                             else if (absValue < One)
                             {
-                                absValue.Multiply(e1);
+                                absValue.Multiply(E1);
                                 e -= 1;
                             }
                             else
@@ -2406,29 +2715,29 @@ namespace Quadruple
                     {
                         while (true)
                         {
-                            if (absValue >= e19)
+                            if (absValue >= E19)
                             {
-                                absValue.Divide(e19);
+                                absValue.Divide(E19);
                                 e += 19;
                             }
-                            else if (absValue >= e10)
+                            else if (absValue >= E10)
                             {
-                                absValue.Divide(e10);
+                                absValue.Divide(E10);
                                 e += 10;
                             }
-                            else if (absValue >= e5)
+                            else if (absValue >= E5)
                             {
-                                absValue.Divide(e5);
+                                absValue.Divide(E5);
                                 e += 5;
                             }
-                            else if (absValue >= e3)
+                            else if (absValue >= E3)
                             {
-                                absValue.Divide(e3);
+                                absValue.Divide(E3);
                                 e += 3;
                             }
-                            else if (absValue >= e1)
+                            else if (absValue >= E1)
                             {
-                                absValue.Divide(e1);
+                                absValue.Divide(E1);
                                 e += 1;
                             }
                             else
@@ -2443,14 +2752,14 @@ namespace Quadruple
 
                     while ((absValue = Fraction(absValue)) > Zero)
                     {
-                        absValue.Multiply(e19);
+                        absValue.Multiply(E19);
                         result.Append(IntegerString(absValue, 19));
                     }
 
                     string resultString = result.ToString().TrimEnd('0'); //trim excess 0's at the end
                     if (resultString[resultString.Length - 1] == '.') resultString += "0"; //e.g. 1.0 instead of 1.
 
-                    return (this.SignificandBits >= highestBit ? "-" : "") + resultString + "e" + (e >= 0 ? "+" : "") + e;
+                    return (SignificandBits >= HighestBit ? "-" : "") + resultString + "e" + (e >= 0 ? "+" : "") + e;
 
                 default:
                     throw new ArgumentException("Unknown format requested");
@@ -2465,10 +2774,10 @@ namespace Quadruple
         /// <returns></returns>
         private static string IntegerString(Quad quad, int digits)
         {
-            if (quad.Exponent > 0) throw new ArgumentOutOfRangeException("The given quad is larger than long.MaxValue");
+            if (quad.Exponent > 0) throw new ArgumentOutOfRangeException(nameof(quad));
             if (quad.Exponent <= -64) return "0";
 
-            ulong significand = quad.SignificandBits | highestBit; //make explicit the implicit bit
+            ulong significand = quad.SignificandBits | HighestBit; //make explicit the implicit bit
             return (significand >> (int)(-quad.Exponent)).ToString(new string('0', digits));
         }
         #endregion
@@ -2476,7 +2785,9 @@ namespace Quadruple
         #region GetHashCode and Equals
         public override int GetHashCode()
         {
+            // ReSharper disable once NonReadonlyMemberInGetHashCode
             int expHash = Exponent.GetHashCode();
+            // ReSharper disable once NonReadonlyMemberInGetHashCode
             return SignificandBits.GetHashCode() ^ (expHash << 16 | expHash >> 16); //rotate expHash's bits 16 places
         }
 
@@ -2496,6 +2807,7 @@ namespace Quadruple
         #endregion
 
         #region IComparable<Quad>
+        /// <inheritdoc />
         /// <summary>
         /// Returns 1 if this Quad is greater than the argument, or the argument is NaN; 0 if they are both equal or both NaN/PositiveInfinity/NegativeInfinity;
         /// and -1 if this Quad is less than the argument, or this Quad is NaN.
@@ -2504,16 +2816,16 @@ namespace Quadruple
         /// <returns></returns>
         public int CompareTo(Quad other)
         {
-            if (this.Exponent == notANumberExponent) //special value
+            if (Exponent == NotANumberExponent) //special value
             {
-                return other.Exponent == notANumberExponent ? 0 : -1; //If both NaN, return 0; otherwise, this NaN is "less than" everything else
+                return other.Exponent == NotANumberExponent ? 0 : -1; //If both NaN, return 0; otherwise, this NaN is "less than" everything else
             }
-            else if (other.Exponent == notANumberExponent)
+            if (other.Exponent == NotANumberExponent)
                 return 1; //this non-NaN "greater" than other (NaN)
 
             if (this == other) return 0;
-            else if (this > other) return 1;
-            else return -1; //this < other
+            if (this > other) return 1;
+            return -1; //this < other
         }
         #endregion
     }
